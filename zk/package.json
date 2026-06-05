@@ -1,8 +1,31 @@
 {
   "name": "@ghostchain/zk",
   "version": "0.1.0",
-  "private": true,
-  "description": "ZK-SNARK circuits for GhostChain protocol - private ghost transfer proofs",
+  "description": "ZK-SNARK circuits for GhostChain protocol - private ghost transfer proofs with Circom and snarkjs",
+  "keywords": [
+    "zero-knowledge",
+    "zk-snarks",
+    "groth16",
+    "circom",
+    "snarkjs",
+    "poseidon",
+    "ghostchain"
+  ],
+  "homepage": "https://github.com/coinceeper/Ghostchain-layer#readme",
+  "bugs": {
+    "url": "https://github.com/coinceeper/Ghostchain-layer/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coinceeper/Ghostchain-layer.git",
+    "directory": "zk"
+  },
+  "license": "MIT",
+  "author": "Mohammad Nazarnejad",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "build:circuit": "circom circuits/ghostTransfer.circom --r1cs --wasm --sym -o build",
     "build:nullifier": "circom circuits/ghostTransferNullifier.circom --r1cs --wasm --sym -o build",
@@ -28,5 +51,8 @@
   "devDependencies": {
     "circomlib": "^2.0.5",
     "snarkjs": "^0.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }

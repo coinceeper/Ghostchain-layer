@@ -11,6 +11,12 @@
     <a href="https://github.com/coinceeper/Ghostchain-layer/actions">
       <img src="https://github.com/coinceeper/Ghostchain-layer/actions/workflows/ci.yml/badge.svg" alt="CI Status">
     </a>
+    <a href="https://www.npmjs.com/package/@ghostchain/sdk">
+      <img src="https://img.shields.io/npm/v/@ghostchain/sdk?color=CB3837&logo=npm" alt="npm SDK">
+    </a>
+    <a href="https://www.npmjs.com/package/@ghostchain/relayer">
+      <img src="https://img.shields.io/npm/v/@ghostchain/relayer?color=CB3837&logo=npm" alt="npm Relayer">
+    </a>
     <a href="https://www.typescriptlang.org/">
       <img src="https://img.shields.io/badge/TypeScript-5.4-3178C6?logo=typescript" alt="TypeScript">
     </a>
@@ -37,6 +43,43 @@
 The protocol prevents **stablecoin blacklisting** by ensuring that the sender's on-chain identity is never directly linked to the recipient. Each transfer uses a one-time stealth address and a zero-knowledge proof, making it **mathematically impossible** for external observers to trace the flow of funds.
 
 > **⚠️ DISCLAIMER:** This software is provided for educational and research purposes only. It has not been audited by a third-party security firm. Use at your own risk.
+
+---
+
+## Installation
+
+### From npm (recommended for SDK usage)
+
+```bash
+# Install the SDK in your project
+npm install @ghostchain/sdk
+
+# Or with yarn
+yarn add @ghostchain/sdk
+
+# Or with pnpm
+pnpm add @ghostchain/sdk
+```
+
+```typescript
+import { GhostChainClient, generateGhostAddress, SUPPORTED_CHAINS } from '@ghostchain/sdk';
+
+// Full example: see "Library Usage" section below
+const client = new GhostChainClient({
+  chains: SUPPORTED_CHAINS,
+  defaultChainId: 42161, // Arbitrum
+});
+```
+
+### From source (for development or full protocol)
+
+```bash
+git clone https://github.com/coinceeper/Ghostchain-layer.git
+cd Ghostchain-layer
+npm install
+cd contracts && forge install && cd ..
+cp .env.example .env
+```
 
 ---
 
@@ -156,6 +199,9 @@ relayer/
 ---
 
 ## Quick Start
+
+> **Using from npm?** Skip to the [Library Usage](#library-usage) section below.
+> All code examples work the same whether installed from npm or built from source.
 
 ### Prerequisites
 
@@ -561,10 +607,12 @@ GhostChain Layer is currently in **Production-Ready Beta Phase**. The core proto
 - [x] **ZK full setup script** — `make setup-ceremony` runs complete Groth16 trusted setup
 - [x] **Production deployment script** — Supports `PRODUCTION_MODE` and `VERIFIER_ADDRESS` overrides
 - [x] **AWS KMS integration** — For production key management
+- [x] **Multi-party trusted setup ceremony** — Community-driven Groth16 Phase 2 ceremony
+- [x] **npm publishing ready** — `@ghostchain/sdk`, `@ghostchain/relayer`, `@ghostchain/zk` available on npm
 
 ### ❌ Still Needed for Production
 - [ ] Third-party security audit (OpenZeppelin / Trail of Bits)
-- [ ] Groth16 trusted setup ceremony (multi-party)
+- [ ] Full Groth16 trusted setup ceremony (multi-party community participation)
 - [ ] Frontend dApp (Next.js + Wagmi)
 - [ ] Solver network bonding/slashing
 - [ ] Mobile SDK (React Native)

@@ -53,7 +53,13 @@
     "deploy:testnet": "cd contracts && forge script script/DeployFactory.s.sol --rpc-url $RPC_URL --broadcast --verify",
     "deploy:production": "cd contracts && PRODUCTION_MODE=true BOOTSTRAP_MODE=false forge script script/DeployFactory.s.sol --rpc-url $RPC_URL --broadcast --verify -vvv",
     "start:solver": "npm start -w relayer",
-    "start:solver:production": "KEY_MANAGER_TYPE=aws-kms USE_FULL_PROVING=true npm start -w relayer"
+    "start:solver:production": "KEY_MANAGER_TYPE=aws-kms USE_FULL_PROVING=true npm start -w relayer",
+    "publish:all": "npm run build && npm publish --workspaces",
+    "publish:sdk": "npm run build -w sdk && npm publish -w sdk",
+    "publish:relayer": "npm run build -w relayer && npm publish -w relayer",
+    "publish:zk": "npm run build:all -w zk && npm publish -w zk",
+    "publish:check": "npm pack --workspaces --dry-run",
+    "version:bump": "npm version patch --workspaces && npm version patch"
   },
   "devDependencies": {
     "prettier": "^3.2.0",

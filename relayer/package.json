@@ -1,19 +1,52 @@
 {
   "name": "@ghostchain/relayer",
   "version": "0.1.0",
-  "private": true,
   "description": "GhostChain Solver/Relayer - Off-chain service for intent-based cross-chain routing. Monitors intents, manages liquidity, and fulfills swaps across multiple chains.",
+  "keywords": [
+    "privacy",
+    "zero-knowledge",
+    "relayer",
+    "solver",
+    "cross-chain",
+    "intent-based",
+    "ghostchain"
+  ],
+  "homepage": "https://github.com/coinceeper/Ghostchain-layer#readme",
+  "bugs": {
+    "url": "https://github.com/coinceeper/Ghostchain-layer/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coinceeper/Ghostchain-layer.git",
+    "directory": "relayer"
+  },
+  "license": "MIT",
   "author": "Mohammad Nazarnejad",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./*": "./dist/*"
+  },
+  "files": ["dist", "README.md"],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts",
     "start": "node dist/index.js",
     "dev": "tsup src/index.ts --format esm,cjs --dts --watch --onSuccess \"node dist/index.js\"",
     "test": "vitest run",
     "lint": "eslint src/",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build",
+    "prepublish": "npm run build"
   },
   "dependencies": {
     "viem": "^2.9.0",
@@ -30,5 +63,8 @@
     "@types/node": "^20.11.0",
     "@types/express": "^4.17.21",
     "@types/cors": "^2.8.17"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
