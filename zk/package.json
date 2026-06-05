@@ -1,0 +1,20 @@
+{
+  "name": "@ghostchain/zk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ZK-SNARK circuits for GhostChain protocol - private ghost transfer proofs",
+  "scripts": {
+    "build:circuit": "circom circuits/ghostTransfer.circom --r1cs --wasm --sym -o build",
+    "setup": "snarkjs groth16 setup build/ghostTransfer.r1cs ptau/powersOfTau28_heafe_16.ptau build/circuit.zkey",
+    "export:verifier": "snarkjs zkey export solidityverifier build/circuit.zkey ../contracts/src/ZKVerifierFull.sol",
+    "export:vk": "snarkjs zkey export verificationkey build/circuit.zkey build/verification_key.json",
+    "prove": "snarkjs groth16 prove build/circuit.zkey build/witness.wtns build/proof.json build/public.json",
+    "verify": "snarkjs groth16 verify build/verification_key.json build/public.json build/proof.json",
+    "test": "node test/ghostTransfer.test.js",
+    "clean": "rm -rf build"
+  },
+  "devDependencies": {
+    "circomlib": "^2.0.5",
+    "snarkjs": "^0.7.0"
+  }
+}

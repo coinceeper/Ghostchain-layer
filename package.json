@@ -1,0 +1,51 @@
+{
+  "name": "ghostchain",
+  "version": "0.1.0",
+  "description": "A censorship-resistant privacy protocol for cross-chain stablecoin transfers using ZK-SNARK proofs, ephemeral contracts, and intent-based routing.",
+  "keywords": [
+    "privacy",
+    "zero-knowledge",
+    "zk-snarks",
+    "stablecoin",
+    "cross-chain",
+    "stealth-addresses",
+    "erc-5564",
+    "evm",
+    "circom",
+    "blockchain",
+    "defi",
+    "solidity",
+    "foundry"
+  ],
+  "homepage": "https://github.com/coinceeper/Ghostchain-layer#readme",
+  "bugs": {
+    "url": "https://github.com/coinceeper/Ghostchain-layer/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coinceeper/Ghostchain-layer.git"
+  },
+  "license": "MIT",
+  "author": "GhostChain Protocol Contributors",
+  "workspaces": [
+    "sdk",
+    "relayer",
+    "zk",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces",
+    "clean": "npm run clean --workspaces",
+    "format": "prettier --write \"**/*.{ts,js,json,sol}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.2.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,97 @@
+# ───── Dependencies ─────
+node_modules/
+.pnp
+.pnp.js
+.pnp.cjs
+
+# ───── Build Outputs ─────
+dist/
+build/
+out/
+cache/
+*.tsbuildinfo
+*.tgz
+
+# ───── Foundry (Smart Contracts) ─────
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+
+# ───── ZK Build Artifacts ─────
+zk/build/
+zk/ptau/
+zk/*.zkey
+zk/*.r1cs
+zk/*.wasm
+zk/*.sym
+zk/verification_key.json
+zk/proof.json
+zk/public.json
+zk/witness.wtns
+
+# ───── Environment Files ─────
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.test
+
+# ───── IDE & Editor ─────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# ───── OS Artifacts ─────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ───── Testing ─────
+coverage/
+.nyc_output/
+coverage.json
+
+# ──── TypeScript ─────
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# ───── Solidity / Foundry ─────
+contracts/lib/
+contracts/broadcast/
+
+# ───── Rust / Cargo (if any) ─────
+target/
+Cargo.lock
+
+# ───── Python (if any) ─────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# ───── Packages ─────
+packages/*/dist/
+packages/*/node_modules/
+
+# ───── Docker ─────
+.docker/
+
+# ───── Misc ─────
+*.bak
+*.orig
+.tmp
+tmp/
+temp/
+
+# ───── Git ─────
+.gitattributes

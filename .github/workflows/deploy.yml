@@ -1,0 +1,72 @@
+name: GhostChain Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain:
+        description: 'Target chain'
+        required: true
+        type: choice
+        options:
+          - ethereum
+          - arbitrum
+          - optimism
+          - polygon
+          - base
+          - bsc
+          - avalanche
+          - fantom
+          - linea
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'testnet'
+        type: choice
+        options:
+          - testnet
+          - mainnet
+
+env:
+  FOUNDRY_PROFILE: ${{ github.event.inputs.chain }}
+
+jobs:
+  deploy:
+    name: Deploy Contracts
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    defaults:
+      run:
+        working-directory: ./contracts
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Install dependencies
+        run: forge install
+
+      - name: Build
+        run: forge build
+
+      - name: Deploy to ${{ github.event.inputs.chain }} (${{ github.event.inputs.environment }})
+        env:
+          PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          USDT_ADDRESS: ${{ secrets[format('{0}_USDT', github.event.inputs.chain)] }}
+          RPC_URL: ${{ secrets[format('{0}_{1}_RPC', github.event.inputs.chain, github.event.inputs.environment)] }}
+        run: |
+          forge script script/DeployFactory.s.sol \
+            --rpc-url $RPC_URL \
+            --broadcast \
+            --verify \
+            --etherscan-api-key ${{ secrets.ETHERSCAN_API_KEY }} \
+            -vvv
+
+      - name: Verify deployment
+        run: |
+          echo "✓ Contracts deployed to ${{ github.event.inputs.chain }} (${{ github.event.inputs.environment }})"

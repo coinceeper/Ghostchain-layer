@@ -1,0 +1,141 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc = "0.8.24"
+evm_version = "cancun"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+
+[profile.ci]
+solc = "0.8.24"
+evm_version = "cancun"
+via_ir = true
+optimizer = true
+optimizer_runs = 10000
+
+# ───── Environment-based RPC Endpoints ─────
+# Each endpoint reads from an env var, so no hardcoded URLs needed.
+# Usage: forge script script/DeployFactory.s.sol --rpc-url <alias> --broadcast
+# Set RPC_URL in .env or pass via --rpc-url <alias>
+#
+# Example .env values:
+#   RPC_ETHEREUM=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
+#   RPC_ARBITRUM=https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY
+#   RPC_POLYGON=https://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY
+#   RPC_OPTIMISM=https://opt-mainnet.g.alchemy.com/v2/YOUR_KEY
+#   RPC_BASE=https://base-mainnet.g.alchemy.com/v2/YOUR_KEY
+#   RPC_BSC=https://bsc-dataseed.binance.org/
+#   RPC_AVALANCHE=https://api.avax.network/ext/bc/C/rpc
+#   RPC_FANTOM=https://rpc.ftm.tools/
+#   RPC_LINEA=https://rpc.linea.build
+#   RPC_ZKSYNC=https://mainnet.era.zksync.io
+#   RPC_SCROLL=https://rpc.scroll.io
+#   RPC_MANTLE=https://rpc.mantle.xyz
+
+[rpc_endpoints]
+ethereum = "${RPC_ETHEREUM}"
+arbitrum = "${RPC_ARBITRUM}"
+polygon = "${RPC_POLYGON}"
+optimism = "${RPC_OPTIMISM}"
+base = "${RPC_BASE}"
+bsc = "${RPC_BSC}"
+avalanche = "${RPC_AVALANCHE}"
+fantom = "${RPC_FANTOM}"
+linea = "${RPC_LINEA}"
+zksync = "${RPC_ZKSYNC}"
+scroll = "${RPC_SCROLL}"
+mantle = "${RPC_MANTLE}"
+
+# ─── Testnet RPC endpoints ───
+sepolia = "${RPC_SEPOLIA}"
+arbitrum_sepolia = "${RPC_ARBITRUM_SEPOLIA}"
+polygon_amoy = "${RPC_POLYGON_AMOY}"
+optimism_sepolia = "${RPC_OPTIMISM_SEPOLIA}"
+base_sepolia = "${RPC_BASE_SEPOLIA}"
+bsc_testnet = "${RPC_BSC_TESTNET}"
+
+# Multi-chain deployment profiles (keep for chain-specific settings)
+[profile.arbitrum]
+solc = "0.8.24"
+evm_version = "cancun"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+chain_id = 42161
+gas_limit = 30000000
+
+[profile.polygon]
+solc = "0.8.24"
+evm_version = "cancun"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+chain_id = 137
+gas_limit = 30000000
+
+[profile.optimism]
+solc = "0.8.24"
+evm_version = "cancun"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+chain_id = 10
+gas_limit = 30000000
+
+[profile.base]
+solc = "0.8.24"
+evm_version = "cancun"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+chain_id = 8453
+gas_limit = 30000000
+
+[profile.ethereum]
+solc = "0.8.24"
+evm_version = "cancun"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+chain_id = 1
+gas_limit = 30000000
+
+[profile.bsc]
+solc = "0.8.24"
+evm_version = "cancun"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+chain_id = 56
+gas_limit = 30000000
+
+[profile.avalanche]
+solc = "0.8.24"
+evm_version = "cancun"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+chain_id = 43114
+gas_limit = 30000000
+
+[profile.fantom]
+solc = "0.8.24"
+evm_version = "cancun"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+chain_id = 250
+gas_limit = 30000000
+
+[profile.linea]
+solc = "0.8.24"
+evm_version = "cancun"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+chain_id = 59144
+gas_limit = 30000000
+
+# See https://book.getfoundry.sh/config/ for more config options

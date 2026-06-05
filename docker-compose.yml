@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # ───── Solver/Relayer Service ─────
+  solver:
+    build:
+      context: ./relayer
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - SOLVER_ID=ghostchain-solver-1
+      - SOLVER_PRIVATE_KEY=${SOLVER_PRIVATE_KEY}
+
+      # RPC endpoints (standardized RPC_<SHORTNAME> convention)
+      - RPC_ARBITRUM=${RPC_ARBITRUM:-https://arb1.arbitrum.io/rpc}
+      - RPC_POLYGON=${RPC_POLYGON:-https://polygon-rpc.com}
+      - RPC_OPTIMISM=${RPC_OPTIMISM:-https://mainnet.optimism.io}
+      - RPC_BASE=${RPC_BASE:-https://mainnet.base.org}
+      - RPC_ETHEREUM=${RPC_ETHEREUM:-https://eth-mainnet.g.alchemy.com/v2/demo}
+      - RPC_BSC=${RPC_BSC:-https://bsc-dataseed.binance.org/}
+      - RPC_AVALANCHE=${RPC_AVALANCHE:-https://api.avax.network/ext/bc/C/rpc}
+      - RPC_FANTOM=${RPC_FANTOM:-https://rpc.ftm.tools/}
+      - RPC_LINEA=${RPC_LINEA:-https://rpc.linea.build}
+
+      # Contract addresses (standardized <SHORTNAME_UPPERCASE>_FACTORY / _VERIFIER)
+      - ARBITRUM_FACTORY=${ARBITRUM_FACTORY}
+      - ARBITRUM_VERIFIER=${ARBITRUM_VERIFIER}
+      - POLYGON_FACTORY=${POLYGON_FACTORY}
+      - POLYGON_VERIFIER=${POLYGON_VERIFIER}
+      - OPTIMISM_FACTORY=${OPTIMISM_FACTORY}
+      - OPTIMISM_VERIFIER=${OPTIMISM_VERIFIER}
+      - BASE_FACTORY=${BASE_FACTORY}
+      - BASE_VERIFIER=${BASE_VERIFIER}
+      - ETHEREUM_FACTORY=${ETHEREUM_FACTORY}
+      - ETHEREUM_VERIFIER=${ETHEREUM_VERIFIER}
+      - BSC_FACTORY=${BSC_FACTORY}
+      - BSC_VERIFIER=${BSC_VERIFIER}
+      - AVALANCHE_FACTORY=${AVALANCHE_FACTORY}
+      - AVALANCHE_VERIFIER=${AVALANCHE_VERIFIER}
+      - FANTOM_FACTORY=${FANTOM_FACTORY}
+      - FANTOM_VERIFIER=${FANTOM_VERIFIER}
+      - LINEA_FACTORY=${LINEA_FACTORY}
+      - LINEA_VERIFIER=${LINEA_VERIFIER}
+
+      # Solver config
+      - MIN_FEE_BPS=${MIN_FEE_BPS:-30}
+      - MAX_FILL_USD=${MAX_FILL_USD:-10000}
+      - API_PORT=3000
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    restart: unless-stopped
+    networks:
+      - ghostchain-net
+
+  # ───── ZK Prover Service (Optional) ─────
+  # Uncomment when ZK prover is ready
+  # zk-prover:
+  #   build:
+  #     context: ./zk
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "8080:8080"
+  #   volumes:
+  #     - ./zk/build:/app/build
+  #   environment:
+  #     - ZKEY_PATH=/app/build/circuit.zkey
+  #   restart: unless-stopped
+  #   networks:
+  #     - ghostchain-net
+
+networks:
+  ghostchain-net:
+    driver: bridge
