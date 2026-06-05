@@ -15,8 +15,8 @@ import cors from 'cors';
 import type { Logger } from 'pino';
 import type { IntentExecutor } from './executor.js';
 import type { LiquidityManager } from './liquidity.js';
-import type { SwapIntent } from '@ghostchain/sdk';
-import { getChainMetadata } from '@ghostchain/sdk';
+import type { SwapIntent } from 'ghostchain-sdk';
+import { getChainMetadata } from 'ghostchain-sdk';
 import type { SolverConfig } from './executor.js';
 
 // ───── API Server ─────

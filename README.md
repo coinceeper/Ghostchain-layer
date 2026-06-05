@@ -11,11 +11,11 @@
     <a href="https://github.com/coinceeper/Ghostchain-layer/actions">
       <img src="https://github.com/coinceeper/Ghostchain-layer/actions/workflows/ci.yml/badge.svg" alt="CI Status">
     </a>
-    <a href="https://www.npmjs.com/package/@ghostchain/sdk">
-      <img src="https://img.shields.io/npm/v/@ghostchain/sdk?color=CB3837&logo=npm" alt="npm SDK">
+    <a href="https://www.npmjs.com/package/ghostchain-sdk">
+      <img src="https://img.shields.io/npm/v/ghostchain-sdk?color=CB3837&logo=npm" alt="npm SDK">
     </a>
-    <a href="https://www.npmjs.com/package/@ghostchain/relayer">
-      <img src="https://img.shields.io/npm/v/@ghostchain/relayer?color=CB3837&logo=npm" alt="npm Relayer">
+    <a href="https://www.npmjs.com/package/ghostchain-relayer">
+      <img src="https://img.shields.io/npm/v/ghostchain-relayer?color=CB3837&logo=npm" alt="npm Relayer">
     </a>
     <a href="https://www.typescriptlang.org/">
       <img src="https://img.shields.io/badge/TypeScript-5.4-3178C6?logo=typescript" alt="TypeScript">
@@ -52,17 +52,17 @@ The protocol prevents **stablecoin blacklisting** by ensuring that the sender's 
 
 ```bash
 # Install the SDK in your project
-npm install @ghostchain/sdk
+npm install ghostchain-sdk
 
 # Or with yarn
-yarn add @ghostchain/sdk
+yarn add ghostchain-sdk
 
 # Or with pnpm
-pnpm add @ghostchain/sdk
+pnpm add ghostchain-sdk
 ```
 
 ```typescript
-import { GhostChainClient, generateGhostAddress, SUPPORTED_CHAINS } from '@ghostchain/sdk';
+import { GhostChainClient, generateGhostAddress, SUPPORTED_CHAINS } from 'ghostchain-sdk';
 
 // Full example: see "Library Usage" section below
 const client = new GhostChainClient({
@@ -608,7 +608,7 @@ GhostChain Layer is currently in **Production-Ready Beta Phase**. The core proto
 - [x] **Production deployment script** — Supports `PRODUCTION_MODE` and `VERIFIER_ADDRESS` overrides
 - [x] **AWS KMS integration** — For production key management
 - [x] **Multi-party trusted setup ceremony** — Community-driven Groth16 Phase 2 ceremony
-- [x] **npm publishing ready** — `@ghostchain/sdk`, `@ghostchain/relayer`, `@ghostchain/zk` available on npm
+- [x] **npm publishing ready** — `ghostchain-sdk`, `ghostchain-relayer`, `ghostchain-zk` available on npm
 
 ### ❌ Still Needed for Production
 - [ ] Third-party security audit (OpenZeppelin / Trail of Bits)

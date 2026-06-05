@@ -7,7 +7,7 @@
 
 import { type PublicClient, type Address, type Hash, parseAbiItem, getAddress } from 'viem';
 import type { Logger } from 'pino';
-import type { SwapIntent } from '@ghostchain/sdk';
+import type { SwapIntent } from 'ghostchain-sdk';
 
 // ───── Event Signature ─────
 

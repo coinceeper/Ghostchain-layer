@@ -16,8 +16,8 @@
  * - Viewing key:  Used to scan for incoming ghost transfers (shared with relayers)
  */
 
-import { HDKey } from '@noble/hashes/hdkey';
-import { bytesToHex, hexToBytes, concatBytes } from '@noble/hashes/utils';
+import { HDKey } from '@scure/bip32';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { type Address, getAddress } from 'viem';
@@ -25,12 +25,8 @@ import type { GhostKeyPair } from './types.js';
 
 // ───── Constants ─────
 
-const HARDENED_OFFSET = 0x80000000;
-const PURPOSE = 44;           // BIP-44
 const COIN_TYPE_ETH = 60;     // Ethereum (and EVM chains)
 const ACCOUNT = 0;
-const SPENDING_CHANGE = 0;    // External chain for spending
-const VIEWING_CHANGE = 1;     // External chain for viewing
 
 // ───── Public API ─────
 
@@ -51,7 +47,7 @@ export function deriveIdentity(
 
   // Spending key: m/44'/coin_type'/account'/0/0
   const spendingPath = `m/44'/${coinType}'/${accountIndex}'/0/0`;
-  const spendingNode = masterKey.derive(getPath(spendingPath));
+  const spendingNode = masterKey.derive(spendingPath);
   if (!spendingNode.privateKey) throw new Error('Failed to derive spending key');
 
   const spendingPrivKey = bytesToHex(spendingNode.privateKey);
@@ -59,7 +55,7 @@ export function deriveIdentity(
 
   // Viewing key: m/44'/coin_type'/account'/1/0
   const viewingPath = `m/44'/${coinType}'/${accountIndex}'/1/0`;
-  const viewingNode = masterKey.derive(getPath(viewingPath));
+  const viewingNode = masterKey.derive(viewingPath);
   if (!viewingNode.privateKey) throw new Error('Failed to derive viewing key');
 
   const viewingPrivKey = bytesToHex(viewingNode.privateKey);
@@ -116,20 +112,6 @@ export function recoverPublicKey(
 // ───── Internal Helpers ─────
 
 /**
- * Converts a BIP-32 path string to hardened path indices.
- * E.g., "m/44'/60'/0'/0/0" -> [0x8000002c, 0x8000003c, 0x80000000, 0, 0]
- */
-function getPath(path: string): number[] {
-  const parts = path.replace(/^m\//, '').split('/');
-  return parts.map((part) => {
-    if (part.endsWith("'")) {
-      return parseInt(part.slice(0, -1), 10) + HARDENED_OFFSET;
-    }
-    return parseInt(part, 10);
-  });
-}
-
-/**
  * Gets the compressed public key from a private key.
  */
 function getCompressedPubKey(privateKey: Uint8Array): Uint8Array {
@@ -153,6 +135,9 @@ function publicKeyToAddress(publicKey: Uint8Array): Address {
 /**
  * Converts a hex string or bytes to a typed hex literal.
  */
-function toHex(value: string): `0x${string}` {
-  return value.startsWith('0x') ? (value as `0x${string}`) : `0x${value}`;
+function toHex(value: string | Uint8Array): `0x${string}` {
+  if (typeof value === 'string') {
+    return value.startsWith('0x') ? (value as `0x${string}`) : `0x${value}`;
+  }
+  return `0x${bytesToHex(value)}`;
 }

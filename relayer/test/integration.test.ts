@@ -16,13 +16,13 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { createPublicClient, http, type Address } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { getChainById } from '@ghostchain/sdk';
+import { getChainById } from 'ghostchain-sdk';
 import { IntentExecutor, type SolverConfig } from '../src/executor.js';
 import { LiquidityManager } from '../src/liquidity.js';
 import { ZkProver, type GhostTransferPublicInputs } from '../src/zk-prover.js';
 import { LocalKeyManager } from '../src/key-manager.js';
 import { createLogger } from '../src/logger.js';
-import { deriveIdentity, generateGhostAddress } from '@ghostchain/sdk';
+import { deriveIdentity, generateGhostAddress } from 'ghostchain-sdk';
 
 // ───── Test Constants ─────
 

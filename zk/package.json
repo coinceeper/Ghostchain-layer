@@ -1,5 +1,5 @@
 {
-  "name": "@ghostchain/zk",
+  "name": "ghostchain-zk",
   "version": "0.1.0",
   "description": "ZK-SNARK circuits for GhostChain protocol - private ghost transfer proofs with Circom and snarkjs",
   "keywords": [

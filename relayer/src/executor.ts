@@ -14,9 +14,9 @@
  */
 
 import { type PublicClient, type Address, type Hash, formatUnits, keccak256, encodePacked } from 'viem';
-import { getChainById, getChainMetadata } from '@ghostchain/sdk';
+import { getChainById, getChainMetadata } from 'ghostchain-sdk';
 import type { Logger } from 'pino';
-import type { SwapIntent } from '@ghostchain/sdk';
+import type { SwapIntent } from 'ghostchain-sdk';
 import { LiquidityManager } from './liquidity.js';
 import { ZkProver, type GhostTransferPublicInputs } from './zk-prover.js';
 import type { KeyManager } from './key-manager.js';
@@ -61,6 +61,7 @@ export interface SolverConfig {
   zkProver?: ZkProver;
   useFullProving?: boolean;
   zkeyPath?: string;
+  [key: string]: unknown; // Allow additional properties
 }
 
 interface RateLimitEntry {

@@ -24,7 +24,7 @@
  */
 
 import { createPublicClient, http, type Address } from 'viem';
-import { getChainById, loadRpcEndpointsFromEnv } from '@ghostchain/sdk';
+import { getChainById, loadRpcEndpointsFromEnv } from 'ghostchain-sdk';
 import { startApiServer } from './api.js';
 import { IntentMonitor } from './monitor.js';
 import { IntentExecutor, type SolverConfig } from './executor.js';
@@ -205,8 +205,8 @@ async function main() {
   });
 
   // Start API server for intent submission
-  const apiServer = startApiServer(config, executor, liquidityManager, logger);
-  apiServer.listen(config.apiPort, () => {
+  const app = startApiServer(config, executor, liquidityManager, logger);
+  const apiServer = app.listen(config.apiPort, () => {
     logger.info(`API server listening on port ${config.apiPort}`);
   });
 

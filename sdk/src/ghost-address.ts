@@ -7,11 +7,11 @@
  * Core cryptography (ECDH on secp256k1):
  *   1. Sender generates ephemeral keypair (r, R)
  *   2. Sender computes ECDH shared secret: S = r * viewingPubKey
- *   3. Compute tweak: t = keccak256(S)
- *   4. Recipient's stealth address = keccak256(spendingPubKey + t)[:20]
+ *   3. Compute tweak: t = keccak_256(S)
+ *   4. Recipient's stealth address = keccak_256(spendingPubKey + t)[:20]
  *
  * The recipient scans for incoming transfers using their viewing key:
- *   - View Tag: first byte of keccak256(S), used for fast filtering
+ *   - View Tag: first byte of keccak_256(S), used for fast filtering
  *   - Only the recipient's viewing key can derive the same shared secret
  *
  * This ensures that only the recipient (with their spending key) can spend
@@ -46,9 +46,9 @@ export interface StealthAddressResult {
  *
  * Per ERC-5564:
  *   1. Generate ephemeral keypair (r, R = r * G)
- *   2. Compute shared secret: S = keccak256(r * viewingPubKey)
- *   3. Compute tweak: t = keccak256(S) as a curve point
- *   4. Stealth address = keccak256(spendingPubKey + t)[:20]
+ *   2. Compute shared secret: S = keccak_256(r * viewingPubKey)
+ *   3. Compute tweak: t = keccak_256(S) as a curve point
+ *   4. Stealth address = keccak_256(spendingPubKey + t)[:20]
  *
  * @param recipientViewingKey - Recipient's viewing public key (for scanning)
  * @param recipientSpendingKey - Recipient's spending public key (for spending)
@@ -69,15 +69,15 @@ export function generateStealthAddress(
     true, // compact form
   );
 
-  // 3. Compute tweak = keccak256(sharedSecret), interpret as scalar on curve
-  const tweak = keccak256(sharedSecret);
+  // 3. Compute tweak = keccak_256(sharedSecret), interpret as scalar on curve
+  const tweak = keccak_256(sharedSecret);
   const tweakedPublicKey = secp256k1.ProjectivePoint
     .fromHex(recipientSpendingKey)
     .add(secp256k1.ProjectivePoint.fromHex(tweak))
     .toRawBytes(false);
 
-  // 4. Convert to address: keccak256(pubkey[1:])[-20:]
-  const addressBytes = keccak256(tweakedPublicKey.slice(1)).slice(-20);
+  // 4. Convert to address: keccak_256(pubkey[1:])[-20:]
+  const addressBytes = keccak_256(tweakedPublicKey.slice(1)).slice(-20);
   const stealthAddress = '0x' + bytesToHex(addressBytes);
 
   return {
@@ -111,8 +111,8 @@ export function generateGhostAddress(
   // Generate ephemeral public key for the event log
   const ephemeralPubKey = secp256k1.getPublicKey(result.ephemeralPrivateKey, true);
 
-  // View tag: first byte of keccak256(sharedSecret) for fast scanning
-  const viewTag = keccak256(result.sharedSecret)[0];
+  // View tag: first byte of keccak_256(sharedSecret) for fast scanning
+  const viewTag = keccak_256(result.sharedSecret)[0];
 
   return {
     address: getAddress(result.stealthAddress as `0x${string}`),
@@ -128,7 +128,7 @@ export function generateGhostAddress(
  *
  * @param recipientIdentity - The recipient's keypair
  * @param ephemeralPublicKey - The ephemeral public key from the transaction
- * @param viewTag - The view tag to filter (first byte of keccak256(sharedSecret))
+ * @param viewTag - The view tag to filter (first byte of keccak_256(sharedSecret))
  * @returns The derived ghost address if the view tag matches, null otherwise
  */
 export function scanGhostAddress(
@@ -144,13 +144,13 @@ export function scanGhostAddress(
     true,
   );
 
-  // Fast filter: check view tag first (first byte of keccak256(sharedSecret))
-  const sharedHash = keccak256(sharedSecret);
+  // Fast filter: check view tag first (first byte of keccak_256(sharedSecret))
+  const sharedHash = keccak_256(sharedSecret);
   if (sharedHash[0] !== viewTag) {
     return null;
   }
 
-  // Compute tweak = keccak256(sharedSecret)
+  // Compute tweak = keccak_256(sharedSecret)
   const tweak = sharedHash;
   const spendingKeyBytes = hexToBytes(recipientIdentity.spendingPublicKey.slice(2));
 
@@ -160,7 +160,7 @@ export function scanGhostAddress(
     .add(secp256k1.ProjectivePoint.fromHex(tweak))
     .toRawBytes(false);
 
-  const addressBytes = keccak256(tweakedPublicKey.slice(1)).slice(-20);
+  const addressBytes = keccak_256(tweakedPublicKey.slice(1)).slice(-20);
 
   return getAddress(`0x${bytesToHex(addressBytes)}`);
 }

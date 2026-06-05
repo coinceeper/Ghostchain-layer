@@ -16,7 +16,7 @@
  */
 
 import { type Address, type PublicClient, createPublicClient, http, parseUnits, formatUnits } from 'viem';
-import { getUsdtAddress } from '@ghostchain/sdk';
+import { getUsdtAddress } from 'ghostchain-sdk';
 import type { Logger } from 'pino';
 import type { SolverConfig } from './executor.js';
 import type { KeyManager } from './key-manager.js';

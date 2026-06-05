@@ -157,7 +157,7 @@ export class IntentManager {
         ],
         functionName: 'fulfillSwap',
         args: [intent.id, proof, intent.recipientGhostAddress],
-        account: this.client.getWalletClient().account.address,
+        account: this.client.getWalletClient()!.account!.address,
       });
 
     return await this.client.getWalletClient().writeContract(request);
