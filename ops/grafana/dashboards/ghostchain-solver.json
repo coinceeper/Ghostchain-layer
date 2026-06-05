@@ -1,0 +1,58 @@
+{
+  "__inputs": [],
+  "__requires": [],
+  "title": "GhostChain Solver Dashboard",
+  "uid": "ghostchain-solver",
+  "panels": [
+    {
+      "title": "Total Intents Processed",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(ghostchain_intents_total)",
+          "legendFormat": "Total Intents"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 }
+    },
+    {
+      "title": "Intent Fulfill Rate",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(ghostchain_intents_fulfilled_total[5m])",
+          "legendFormat": "Fulfill Rate"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 0 }
+    },
+    {
+      "title": "Active Monitored Chains",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "count(ghostchain_chain_active)",
+          "legendFormat": "Active Chains"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 }
+    },
+    {
+      "title": "Error Rate (5m)",
+      "type": "graph",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(ghostchain_errors_total[5m])",
+          "legendFormat": "Errors/s"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 }
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

@@ -25,13 +25,61 @@ on:
         options:
           - testnet
           - mainnet
+      production_mode:
+        description: 'Enable production mode (disables bootstrap, requires full verifier)'
+        required: true
+        type: boolean
+        default: false
+      verification_type:
+        description: 'Verification type for deploy script'
+        required: true
+        type: choice
+        default: 'bootstrap'
+        options:
+          - bootstrap
+          - full-groth16
 
 env:
   FOUNDRY_PROFILE: ${{ github.event.inputs.chain }}
 
 jobs:
+  validate:
+    name: Pre-deployment Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Validate deployment
+        run: |
+          echo "✓ Validating deployment to ${{ github.event.inputs.chain }}"
+          echo "  Environment: ${{ github.event.inputs.environment }}"
+          echo "  Production Mode: ${{ github.event.inputs.production_mode }}"
+          echo "  Verification: ${{ github.event.inputs.verification_type }}"
+
+          # Production safety checks
+          if [ "${{ github.event.inputs.environment }}" = "mainnet" ] && [ "${{ github.event.inputs.verification_type }}" = "bootstrap" ]; then
+            echo "❌ ERROR: Mainnet deployment requires full Groth16 verification!"
+            echo "  Set verification_type to 'full-groth16' for mainnet."
+            exit 1
+          fi
+
+          if [ "${{ github.event.inputs.environment }}" = "mainnet" ] && [ "${{ github.event.inputs.production_mode }}" = "false" ]; then
+            echo "⚠️  WARNING: Deploying to mainnet without production mode enabled."
+            echo "  Bootstrap proofs will be accepted. Set production_mode=true for security."
+          fi
+
+          echo "✓ Validation passed"
+
   deploy:
     name: Deploy Contracts
+    needs: validate
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment }}
     defaults:
@@ -59,6 +107,9 @@ jobs:
           PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
           USDT_ADDRESS: ${{ secrets[format('{0}_USDT', github.event.inputs.chain)] }}
           RPC_URL: ${{ secrets[format('{0}_{1}_RPC', github.event.inputs.chain, github.event.inputs.environment)] }}
+          BOOTSTRAP_MODE: ${{ github.event.inputs.verification_type == 'bootstrap' && 'true' || 'false' }}
+          PRODUCTION_MODE: ${{ github.event.inputs.production_mode && 'true' || 'false' }}
+          REGISTRY_OWNER: ${{ secrets.REGISTRY_OWNER }}
         run: |
           forge script script/DeployFactory.s.sol \
             --rpc-url $RPC_URL \
@@ -69,4 +120,10 @@ jobs:
 
       - name: Verify deployment
         run: |
-          echo "✓ Contracts deployed to ${{ github.event.inputs.chain }} (${{ github.event.inputs.environment }})"
+          echo "═══════════════════════════════════════"
+          echo "  Deployment Complete"
+          echo "  Chain:       ${{ github.event.inputs.chain }}"
+          echo "  Environment: ${{ github.event.inputs.environment }}"
+          echo "  Production:  ${{ github.event.inputs.production_mode }}"
+          echo "  Verify:     ${{ github.event.inputs.verification_type }}"
+          echo "═══════════════════════════════════════"

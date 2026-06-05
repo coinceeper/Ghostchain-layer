@@ -335,40 +335,105 @@ The deployment script is **chain-agnostic** — it auto-detects the chain ID fro
 ```bash
 cd contracts
 
-# Deploy to Arbitrum Sepolia (testnet)
+# ───── Testnet Deployment ─────
+# Bootstrap mode enabled by default (ECDSA-based proofs)
 forge script script/DeployFactory.s.sol \
   --rpc-url arbitrum_sepolia \
   --broadcast \
   --verify
 
-# Deploy to Polygon Amoy (testnet)
+# ───── Mainnet Production Deployment ─────
+# Requires: full Groth16 verifier deployed, BOOTSTRAP_MODE=false, PRODUCTION_MODE=true
+PRODUCTION_MODE=true \
+BOOTSTRAP_MODE=false \
 forge script script/DeployFactory.s.sol \
-  --rpc-url polygon_amoy \
+  --rpc-url arbitrum \
   --broadcast \
-  --verify
+  --verify \
+  -vvv
 
-# Deploy to Ethereum Sepolia (testnet)
+# ───── Using Pre-deployed Verifier (recommended for multi-chain) ─────
+VERIFIER_ADDRESS=0xDeployedVerifierAddress \
+REGISTRY_ADDRESS=0xDeployedRegistryAddress \
+PRODUCTION_MODE=true \
+BOOTSTRAP_MODE=false \
 forge script script/DeployFactory.s.sol \
-  --rpc-url sepolia \
+  --rpc-url base \
   --broadcast \
   --verify
 ```
 
-> **Note:** Deploy with `BOOTSTRAP_MODE=true` (default) for development. Once the Groth16 trusted setup is complete, call `upgradeVerifier()` on the ZKVerifier contract with the full generated verifier address.
+> **Production Safety:**
+> - `BOOTSTRAP_MODE=false` — Disables ECDSA fallback proofs
+> - `PRODUCTION_MODE=true` — Enables one-way production guard on ZKVerifier
+> - `VERIFIER_ADDRESS` — Reuse a single audited verifier across chains
+> - `REGISTRY_OWNER` — Set to a multisig address for production
+
+After deployment, verify the contract on-chain:
+
+```bash
+# Check production mode is active
+cast call $VERIFIER_ADDRESS "productionMode()(bool)" --rpc-url $RPC_URL
+# Should return: true
+
+# Verify no bootstrap fallback
+cast call $VERIFIER_ADDRESS "bootstrapMode()(bool)" --rpc-url $RPC_URL
+# Should return: false
+```
+
+### Activating Production Mode
+
+After deploying the full Groth16 verifier (`ZKVerifierFull.sol`), call the one-way switch:
+
+```solidity
+// 1. Upgrade to the full Groth16 verifier
+zkVerifier.upgradeVerifier(0xZKVerifierFullAddress);
+
+// 2. Permanently activate production mode (IRREVERSIBLE)
+zkVerifier.activateProductionMode();
+```
+
+Once `activateProductionMode()` is called, bootstrap verification is **permanently blocked**.
+Only full Groth16/PLONK proofs will be accepted.
+
+For the trusted setup ceremony:
+
+```bash
+# Download Powers of Tau and run full setup
+make setup-ceremony
+```
 
 ### Run Solver / Relayer
 
 ```bash
-# 1. Configure .env with RPC endpoints and contract addresses
-cp .env.example .env
-# Edit .env with your values
+# 1. Configure environment
+cp .env.production .env
+# Edit .env with real values
 
-# 2. Start the solver (development)
+# 2. Development mode
 npm start -w relayer
 
-# 3. Or with Docker
-docker-compose up -d solver
+# 3. Production mode (with AWS KMS and full proving)
+USE_FULL_PROVING=true KEY_MANAGER_TYPE=aws-kms npm start -w relayer
+
+# 4. Docker (development)
+docker-compose up -d
+
+# 5. Docker (production with monitoring)
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
+
+### Makefile Commands
+
+| Command | Description |
+|---------|-------------|
+| `make build` | Build all packages |
+| `make build-production` | Build with production optimizer |
+| `make test-all` | Run all tests (contracts + SDK + relayer + ZK) |
+| `make setup-ceremony` | Download Ptau + run full Groth16 setup |
+| `make deploy-testnet` | Deploy to testnet |
+| `make deploy-mainnet` | Deploy to mainnet (production mode) |
+| `make docker-up-prod` | Start production stack with monitoring |
 
 ### Solver Environment Variables
 
@@ -381,9 +446,13 @@ docker-compose up -d solver
 | `MIN_FEE_BPS` | Minimum fee in basis points | `30` (0.3%) |
 | `MAX_FILL_USD` | Maximum fill per transaction | `10000` |
 | `USE_FULL_PROVING` | Use Groth16 proofs (requires zkey) | `false` |
+| `PRODUCTION_MODE` | Enable production safety guards | `false` |
+| `BOOTSTRAP_MODE` | Enable bootstrap verification (testnet only) | `true` |
+| `REGISTRY_OWNER` | Registry owner (multisig in production) | deployer |
+| `VERIFIER_ADDRESS` | Pre-deployed verifier address | — |
 | `RPC_ARBITRUM` | RPC URL for Arbitrum | — |
 | `RPC_POLYGON` | RPC URL for Polygon | — |
-| *(See `.env.example` for all variables)* | | |
+| *(See `.env.production` for all variables)* | | |
 
 ---
 
@@ -401,8 +470,23 @@ Implements a nullifier-based privacy model (inspired by Tornado Cash). Proves th
 During development, GhostChain uses ECDSA-based bootstrap proofs instead of full Groth16 proofs. This avoids the need for a trusted setup ceremony while still providing cryptographic sender authentication. Switch to full proving with:
 
 ```bash
-USE_FULL_PROVING=true ZKEY_PATH=./zk/build/circuit.zkey npm start -w relayer
+USE_FULL_PROVING=true ZKEY_PATH=./zk/build/circuit_final.zkey npm start -w relayer
 ```
+
+### Production Mode (⚠️ Security Critical)
+In production, bootstrap mode MUST be disabled and the one-way `productionMode` guard activated:
+
+```bash
+# Deploy with production mode
+PRODUCTION_MODE=true BOOTSTRAP_MODE=false \
+  forge script script/DeployFactory.s.sol --rpc-url mainnet --broadcast --verify
+
+# Activate the one-way production switch on ZKVerifier
+# (This permanently blocks bootstrap verification)
+cast send $VERIFIER_ADDRESS "activateProductionMode()" --private-key $OWNER_KEY
+```
+
+> **Why `productionMode` is a one-way switch:** Once activated, bootstrap verification is permanently disabled. This ensures that even if the deployer key is compromised, an attacker cannot downgrade the verifier back to bootstrap mode. The only way to verify proofs in production mode is through the full Groth16/PLONK verifier contract.
 
 ---
 
@@ -419,6 +503,7 @@ USE_FULL_PROVING=true ZKEY_PATH=./zk/build/circuit.zkey npm start -w relayer
 | **Flash loan attacks** | Per-tx max ($50k) + cumulative window ($200k/hr) rate limiting |
 | **Solver insolvency** | Kill switch; bonded liquidity; rebalance thresholds |
 | **ZK circuit bugs** | Bootstrap mode uses battle-tested ECDSA; upgradeable to full verifier |
+| **Bootstrap forgery (mainnet)** | `productionMode` guard prevents bootstrap verification in production; `activateProductionMode()` is one-way |
 | **Frontrunning** | Ephemeral contracts use commitments (not visible amounts) |
 
 ### Production Readiness
@@ -457,18 +542,29 @@ USE_FULL_PROVING=true ZKEY_PATH=./zk/build/circuit.zkey npm start -w relayer
 
 ## Project Status
 
-GhostChain Layer is currently in **MVP/Testnet Phase**. The core protocol is functional and ready for beta testing on testnets:
+GhostChain Layer is currently in **Production-Ready Beta Phase**. The core protocol is fully functional with production safety guards:
 
-- [x] Erc-5564 stealth addresses
+### ✅ Completed (Production Ready)
+- [x] ERC-5564 stealth addresses
 - [x] Poseidon-based ZK circuit
 - [x] ERC-1167 minimal proxy swaps
 - [x] Intent-based cross-chain routing
 - [x] Solver/Relayer service
 - [x] Bootstrap ZK verification
 - [x] Multi-chain support (12 EVM networks)
-- [x] CI/CD pipeline with Foundry + Circom
-- [ ] Third-party security audit
-- [ ] Groth16 trusted setup ceremony
+- [x] CI/CD pipeline with Foundry + Circom + Docker
+- [x] **Production mode guard** — `productionMode` permanently disables bootstrap verification
+- [x] **One-way kill switch** — `activateProductionMode()` is irreversible
+- [x] **Production Docker Compose** — Health checks, non-root users, resource limits, monitoring
+- [x] **Prometheus/Grafana** — Metrics and dashboards for solver monitoring
+- [x] **Slither static analysis** — Integrated in CI pipeline
+- [x] **ZK full setup script** — `make setup-ceremony` runs complete Groth16 trusted setup
+- [x] **Production deployment script** — Supports `PRODUCTION_MODE` and `VERIFIER_ADDRESS` overrides
+- [x] **AWS KMS integration** — For production key management
+
+### ❌ Still Needed for Production
+- [ ] Third-party security audit (OpenZeppelin / Trail of Bits)
+- [ ] Groth16 trusted setup ceremony (multi-party)
 - [ ] Frontend dApp (Next.js + Wagmi)
 - [ ] Solver network bonding/slashing
 - [ ] Mobile SDK (React Native)

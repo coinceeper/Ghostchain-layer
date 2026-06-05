@@ -34,6 +34,40 @@ export function startApiServer(
   app.use(cors());
   app.use(express.json());
 
+  // ───── Root Health Check (for Docker) ─────
+
+  app.get('/health', (_req, res) => {
+    res.json({
+      status: 'ok',
+      service: 'ghostchain-solver',
+      timestamp: Date.now(),
+    });
+  });
+
+  // ───── Prometheus Metrics ─────
+
+  app.get('/metrics', (_req, res) => {
+    const killSwitch = executor.isKillSwitchEngaged();
+    res.type('text/plain');
+    res.send([
+      '# HELP ghostchain_solver_info Solver metadata',
+      '# TYPE ghostchain_solver_info gauge',
+      `ghostchain_solver_info{solver_id="${config.solverId}",version="0.1.0"} 1`,
+      '',
+      '# HELP ghostchain_kill_switch Kill switch status (1=engaged, 0=disengaged)',
+      '# TYPE ghostchain_kill_switch gauge',
+      `ghostchain_kill_switch ${killSwitch ? 1 : 0}`,
+      '',
+      '# HELP ghostchain_active_chains Number of chains the solver monitors',
+      '# TYPE ghostchain_active_chains gauge',
+      `ghostchain_active_chains ${config.supportedChainIds.length}`,
+      '',
+      '# HELP ghostchain_supported_tokens Number of supported tokens across chains',
+      '# TYPE ghostchain_supported_tokens gauge',
+      `ghostchain_supported_tokens ${config.factoryAddresses ? Object.keys(config.factoryAddresses).length : 0}`,
+    ].join('\n'));
+  });
+
   // ───── Health Check ─────
 
   app.get('/api/v1/health', (_req, res) => {

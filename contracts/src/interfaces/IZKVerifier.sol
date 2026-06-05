@@ -88,4 +88,11 @@ interface IZKVerifier {
     /// @notice Returns whether the verifier is in bootstrap mode
     /// @return True if in bootstrap mode, false if using full generated verifier
     function bootstrapMode() external view returns (bool);
+
+    /// @notice Returns whether production mode is active
+    /// @return True if production mode is active (bootstrap blocked, full verifier required)
+    function productionMode() external view returns (bool);
+
+    /// @notice Activates production mode (one-way switch, permanently disables bootstrap)
+    function activateProductionMode() external;
 }

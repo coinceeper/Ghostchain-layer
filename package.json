@@ -35,10 +35,25 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces",
+    "build:production": "FOUNDRY_PROFILE=production npm run build && npm run build:zk:full",
+    "build:contracts": "cd contracts && forge build",
+    "build:contracts:production": "cd contracts && FOUNDRY_PROFILE=production forge build",
+    "build:zk": "cd zk && npm run build:all",
+    "build:zk:full": "cd zk && npm run full:setup",
+    "build:docker": "docker build -t ghostchain-solver -f relayer/Dockerfile relayer/ && docker build -t ghostchain-zk-prover -f zk/Dockerfile zk/",
     "test": "npm run test --workspaces",
+    "test:contracts": "cd contracts && forge test -vvv",
+    "test:contracts:gas": "cd contracts && forge test --gas-report",
+    "test:all": "npm test && npm run test:contracts",
     "lint": "npm run lint --workspaces",
+    "lint:sol": "cd contracts && forge fmt --check",
     "clean": "npm run clean --workspaces",
-    "format": "prettier --write \"**/*.{ts,js,json,sol}\""
+    "clean:contracts": "cd contracts && forge clean",
+    "format": "prettier --write \"**/*.{ts,js,json,sol}\"",
+    "deploy:testnet": "cd contracts && forge script script/DeployFactory.s.sol --rpc-url $RPC_URL --broadcast --verify",
+    "deploy:production": "cd contracts && PRODUCTION_MODE=true BOOTSTRAP_MODE=false forge script script/DeployFactory.s.sol --rpc-url $RPC_URL --broadcast --verify -vvv",
+    "start:solver": "npm start -w relayer",
+    "start:solver:production": "KEY_MANAGER_TYPE=aws-kms USE_FULL_PROVING=true npm start -w relayer"
   },
   "devDependencies": {
     "prettier": "^3.2.0",

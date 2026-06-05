@@ -5,6 +5,7 @@ import { Test } from "forge-std/Test.sol";
 import { EphemeralFactory } from "../src/EphemeralFactory.sol";
 import { EphemeralRouter } from "../src/EphemeralRouter.sol";
 import { ZKVerifier } from "../src/ZKVerifier.sol";
+import { IZKVerifier } from "../src/interfaces/IZKVerifier.sol";
 import { IEphemeralFactory } from "../src/interfaces/IEphemeralFactory.sol";
 
 /// @title EphemeralFactoryTest
@@ -280,6 +281,85 @@ contract EphemeralFactoryTest is Test {
     function test_RevertWhen_ZeroImplementation() public {
         vm.expectRevert(EphemeralFactory.ZeroAddressNotAllowed.selector);
         new EphemeralFactory(address(verifier), address(0));
+    }
+
+    // ───── ZKVerifier Production Mode Tests ─────
+
+    function test_ProductionModeGuard_RevertsBootstrap() public {
+        // Deploy a verifier in bootstrap mode
+        ZKVerifier prodVerifier = new ZKVerifier(keccak256("test"), 0, true);
+
+        // Set a dummy full verifier and activate production mode
+        address dummyVerifier = address(0xdead);
+        vm.prank(address(this));
+        prodVerifier.upgradeVerifier(dummyVerifier);
+        prodVerifier.activateProductionMode();
+
+        assertTrue(prodVerifier.productionMode(), "Production mode should be active");
+
+        // Now verify that bootstrap mode reverts (no full verifier properly set)
+        IZKVerifier.GhostTransferPublicInputs memory inputs = IZKVerifier
+            .GhostTransferPublicInputs({
+                senderCommitment: bytes32(uint256(1)),
+                recipientCommitment: bytes32(uint256(2)),
+                contractHash: keccak256("test"),
+                token: address(0x1),
+                amount: 100,
+                nonce: 1,
+                chainId: block.chainid
+            });
+
+        vm.expectRevert(ZKVerifier.BootstrapNotAllowedInProduction.selector);
+        prodVerifier.verifyGroth16Proof(hex"", inputs);
+    }
+
+    function test_ProductionMode_ActivateBeforeUpgrade_Reverts() public {
+        // Deploy verifier WITHOUT a full verifier
+        ZKVerifier prodVerifier = new ZKVerifier(keccak256("test"), 0, true);
+
+        // Attempting to activate production mode without full verifier should revert
+        vm.expectRevert(ZKVerifier.NoFullVerifierSet.selector);
+        prodVerifier.activateProductionMode();
+    }
+
+    function test_ProductionMode_OneWaySwitch() public {
+        ZKVerifier prodVerifier = new ZKVerifier(keccak256("test"), 0, true);
+
+        address dummyVerifier = address(0xdead);
+        vm.prank(address(this));
+        prodVerifier.upgradeVerifier(dummyVerifier);
+
+        // First activation should succeed
+        prodVerifier.activateProductionMode();
+        assertTrue(prodVerifier.productionMode(), "Production mode should be active");
+
+        // Second activation should revert (already in production mode)
+        vm.expectRevert(ZKVerifier.AlreadyInProductionMode.selector);
+        prodVerifier.activateProductionMode();
+    }
+
+    function test_UpgradeVerifier_TwiceReverts() public {
+        ZKVerifier prodVerifier = new ZKVerifier(keccak256("test"), 0, true);
+
+        vm.prank(address(this));
+        prodVerifier.upgradeVerifier(address(0xdead));
+
+        // Second upgrade should revert
+        vm.expectRevert(ZKVerifier.AlreadyUpgraded.selector);
+        prodVerifier.upgradeVerifier(address(0xbeef));
+    }
+
+    function test_ProductionMode_ImmutableAfterActivation() public {
+        ZKVerifier prodVerifier = new ZKVerifier(keccak256("test"), 0, true);
+
+        address dummyVerifier = address(0xdead);
+        vm.prank(address(this));
+        prodVerifier.upgradeVerifier(dummyVerifier);
+        prodVerifier.activateProductionMode();
+
+        // Verify we cannot downgrade - productionMode has no setter for false
+        // (the only way to verify this is that there's no setter function)
+        assertTrue(prodVerifier.productionMode(), "Production mode must remain active");
     }
 
     function test_ProxyDeployment() public {

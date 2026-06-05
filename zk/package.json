@@ -5,13 +5,18 @@
   "description": "ZK-SNARK circuits for GhostChain protocol - private ghost transfer proofs",
   "scripts": {
     "build:circuit": "circom circuits/ghostTransfer.circom --r1cs --wasm --sym -o build",
-    "setup": "snarkjs groth16 setup build/ghostTransfer.r1cs ptau/powersOfTau28_heafe_16.ptau build/circuit.zkey",
-    "export:verifier": "snarkjs zkey export solidityverifier build/circuit.zkey ../contracts/src/ZKVerifierFull.sol",
-    "export:vk": "snarkjs zkey export verificationkey build/circuit.zkey build/verification_key.json",
-    "prove": "snarkjs groth16 prove build/circuit.zkey build/witness.wtns build/proof.json build/public.json",
+    "build:nullifier": "circom circuits/ghostTransferNullifier.circom --r1cs --wasm --sym -o build",
+    "build:all": "npm run build:circuit && npm run build:nullifier",
+    "setup": "snarkjs groth16 setup build/ghostTransfer.r1cs ptau/powersOfTau28_hez_final_16.ptau build/circuit.zkey",
+    "setup:final": "snarkjs zkey contribute build/circuit.zkey build/circuit_final.zkey --name='1st contribution' -v",
+    "export:verifier": "snarkjs zkey export solidityverifier build/circuit_final.zkey ../contracts/src/ZKVerifierFull.sol",
+    "export:vk": "snarkjs zkey export verificationkey build/circuit_final.zkey build/verification_key.json",
+    "prove": "snarkjs groth16 prove build/circuit_final.zkey build/witness.wtns build/proof.json build/public.json",
     "verify": "snarkjs groth16 verify build/verification_key.json build/public.json build/proof.json",
+    "prove:bootstrap": "node test/ghostTransfer.test.js",
     "test": "node test/ghostTransfer.test.js",
-    "clean": "rm -rf build"
+    "full:setup": "npm run build:all && npm run setup && npm run setup:final && npm run export:vk && npm run export:verifier",
+    "clean": "rm -rf build ptau"
   },
   "devDependencies": {
     "circomlib": "^2.0.5",

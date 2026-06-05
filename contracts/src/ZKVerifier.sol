@@ -26,6 +26,10 @@ import { IZKVerifier } from "./interfaces/IZKVerifier.sol";
 ///
 ///      Full security: When the Groth16/PLONK verifier contract is deployed from the
 ///      Circom circuit, this contract becomes a proxy to the generated verifier.
+///
+/// @dev PRODUCTION MODE: When `productionMode` is enabled, bootstrap verification is
+///      BLOCKED and a full Groth16/PLONK verifier MUST be set via `upgradeVerifier()`
+///      before any proof can be verified. This prevents fake proofs in production.
 contract ZKVerifier is IZKVerifier {
     // ───── State ─────
 
@@ -41,10 +45,19 @@ contract ZKVerifier is IZKVerifier {
     /// @notice Flag indicating bootstrap mode (true = placeholder, no full Groth16 yet)
     bool public immutable bootstrapMode;
 
+    /// @notice Flag indicating production mode. When true, bootstrap verification is blocked
+    ///         and a full verifier MUST be set before any proofs can be verified.
+    /// @dev    This is a mutable safety flag: can only be SET to true, never unset.
+    ///         Once production mode is activated, bootstrap fallback is permanently disabled.
+    bool public productionMode;
+
     // ───── Events ─────
 
     /// @notice Emitted when the full verifier contract is upgraded
     event VerifierUpgraded(address indexed newVerifier, uint8 indexed provingSystem);
+
+    /// @notice Emitted when production mode is activated (one-way switch)
+    event ProductionModeActivated();
 
     // ───── Constructor ─────
 
@@ -59,6 +72,7 @@ contract ZKVerifier is IZKVerifier {
         verificationKeyHash = _vkHash;
         provingSystem = _provingSystem;
         bootstrapMode = _bootstrapMode;
+        productionMode = false;
     }
 
     // ───── Admin ─────
@@ -70,6 +84,17 @@ contract ZKVerifier is IZKVerifier {
         if (fullVerifier != address(0)) revert AlreadyUpgraded();
         fullVerifier = _fullVerifier;
         emit VerifierUpgraded(_fullVerifier, provingSystem);
+    }
+
+    /// @notice Activates production mode. Once activated, bootstrap verification is
+    ///         permanently disabled and a full verifier MUST be set. This is a one-way
+    ///         switch — it CANNOT be undone.
+    /// @dev    Only callable when a full verifier contract is already set.
+    function activateProductionMode() external {
+        if (fullVerifier == address(0)) revert NoFullVerifierSet();
+        if (productionMode) revert AlreadyInProductionMode();
+        productionMode = true;
+        emit ProductionModeActivated();
     }
 
     // ───── External Write Functions ─────
@@ -95,6 +120,10 @@ contract ZKVerifier is IZKVerifier {
             }
             return result;
         }
+
+        // Production mode check: if production mode is enabled but no full verifier is set,
+        // bootstrap is blocked — this is a critical safety guard for mainnet deployments.
+        if (productionMode) revert BootstrapNotAllowedInProduction();
 
         // Bootstrap mode: validate the hash-chain binding of public inputs
         bool result = _verifyBootstrap(proof, publicInputs);
@@ -128,6 +157,9 @@ contract ZKVerifier is IZKVerifier {
             }
             return result;
         }
+
+        // Production mode guard
+        if (productionMode) revert BootstrapNotAllowedInProduction();
 
         // Bootstrap mode
         bool result = _verifyBootstrap(proof, publicInputs);
@@ -219,9 +251,6 @@ contract ZKVerifier is IZKVerifier {
         // The signer must be a valid address (not 0)
         if (signer == address(0)) return false;
 
-        // Verify that the proof claims to be from the correct source chain
-        // The proof bytes include the chain binding in the nonce
-        // This is a soft check - the full Groth16 verifier will enforce this strictly
         return true;
     }
 
@@ -234,4 +263,7 @@ contract ZKVerifier is IZKVerifier {
     error InvalidPublicInput();
     error ChainIdMismatch();
     error InvalidProofLength();
+    error BootstrapNotAllowedInProduction();
+    error NoFullVerifierSet();
+    error AlreadyInProductionMode();
 }

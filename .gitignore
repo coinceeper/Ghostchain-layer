@@ -34,7 +34,6 @@ zk/witness.wtns
 .env.local
 .env.*.local
 .env.development
-.env.production
 .env.test
 
 # ───── IDE & Editor ─────
@@ -85,6 +84,10 @@ packages/*/node_modules/
 
 # ───── Docker ─────
 .docker/
+.dockerignore
+
+# ───── Documentation / Guide ─────
+راهنمای ساخت/
 
 # ───── Misc ─────
 *.bak

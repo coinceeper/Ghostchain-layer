@@ -1,5 +1,31 @@
 version: '3.8'
 
+# ────────────────────────────────────
+# GhostChain Protocol - Docker Compose
+# ────────────────────────────────────
+# Usage:
+#   Development: docker-compose up -d solver
+#   Production:  docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# ───── Networks ─────
+
+networks:
+  ghostchain-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+  monitoring-net:
+    driver: bridge
+
+# ───── Volumes ─────
+
+volumes:
+  zk-prover-data:
+  prometheus-data:
+  grafana-data:
+
 services:
   # ───── Solver/Relayer Service ─────
   solver:
@@ -8,6 +34,7 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
+      - "9090:9090"  # Metrics endpoint (prometheus)
     environment:
       - SOLVER_ID=ghostchain-solver-1
       - SOLVER_PRIVATE_KEY=${SOLVER_PRIVATE_KEY}
@@ -48,26 +75,73 @@ services:
       - MAX_FILL_USD=${MAX_FILL_USD:-10000}
       - API_PORT=3000
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - KEY_MANAGER_TYPE=${KEY_MANAGER_TYPE:-local}
+      - USE_FULL_PROVING=${USE_FULL_PROVING:-false}
+      - ZKEY_PATH=${ZKEY_PATH}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - ghostchain-net
+      - monitoring-net
+
+  # ───── ZK Prover Service ─────
+  zk-prover:
+    build:
+      context: ./zk
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - zk-prover-data:/app/build
+      - ./zk/build:/app/build:ro
+    environment:
+      - ZKEY_PATH=/app/build/circuit_final.zkey
+      - USE_FULL_PROVING=true
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
     networks:
       - ghostchain-net
 
-  # ───── ZK Prover Service (Optional) ─────
-  # Uncomment when ZK prover is ready
-  # zk-prover:
-  #   build:
-  #     context: ./zk
-  #     dockerfile: Dockerfile
-  #   ports:
-  #     - "8080:8080"
-  #   volumes:
-  #     - ./zk/build:/app/build
-  #   environment:
-  #     - ZKEY_PATH=/app/build/circuit.zkey
-  #   restart: unless-stopped
-  #   networks:
-  #     - ghostchain-net
+  # ───── Prometheus (Monitoring) ─────
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    ports:
+      - "9091:9090"
+    volumes:
+      - prometheus-data:/prometheus
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    restart: unless-stopped
+    networks:
+      - monitoring-net
 
-networks:
-  ghostchain-net:
-    driver: bridge
+  # ───── Grafana (Dashboards) ─────
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./ops/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./ops/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    restart: unless-stopped
+    networks:
+      - monitoring-net

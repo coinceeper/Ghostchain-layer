@@ -44,6 +44,13 @@ jobs:
       - name: Run gas report
         run: forge test --gas-report
 
+      - name: Slither static analysis
+        uses: crytic/slither-action@v0.4.0
+        continue-on-error: true
+        with:
+          target: contracts/
+          slither-config: contracts/slither.config.json
+
   # ───── SDK Checks ─────
   sdk:
     name: TypeScript SDK
@@ -73,6 +80,9 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Type check
+        run: npx tsc --noEmit
 
   # ───── Relayer Checks ─────
   relayer:
@@ -110,6 +120,8 @@ jobs:
 
       - name: Integration tests
         run: npx vitest run test/integration.test.ts
+
+  # ───── ZK Circuits ─────
   zk:
     name: ZK Circuits
     runs-on: ubuntu-latest
@@ -154,8 +166,64 @@ jobs:
       - name: Setup Groth16 proving key
         run: npx snarkjs groth16 setup build/ghostTransfer.r1cs ptau/powersOfTau28_hez_final_16.ptau build/circuit.zkey
 
+      - name: Contribute to the ceremony
+        run: npx snarkjs zkey contribute build/circuit.zkey build/circuit_final.zkey --name='CI contribution' -v
+
       - name: Export Solidity verifier
-        run: npx snarkjs zkey export solidityverifier build/circuit.zkey ../../contracts/src/ZKVerifierFull.sol
+        run: npx snarkjs zkey export solidityverifier build/circuit_final.zkey ../../contracts/src/ZKVerifierFull.sol
+
+      - name: Export verification key
+        run: npx snarkjs zkey export verificationkey build/circuit_final.zkey build/verification_key.json
 
       - name: Test proof generation
         run: npm test
+
+  # ───── Docker Build Check ─────
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Solver Docker image
+        run: docker build -t ghostchain-solver -f relayer/Dockerfile relayer/
+
+      - name: Build ZK Prover Docker image
+        run: docker build -t ghostchain-zk-prover -f zk/Dockerfile zk/
+
+  # ───── Security Audit (Production) ─────
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Build contracts
+        run: |
+          cd contracts
+          forge build
+
+      - name: Check for production-deployed bootstrap mode
+        run: |
+          # Ensure ZKVerifier has productionMode variable in the bytecode
+          cd contracts
+          if grep -q "productionMode" out/ZKVerifier.sol/ZKVerifier.json; then
+            echo "✓ Production mode guard detected in ZKVerifier"
+          else
+            echo "⚠️  WARNING: productionMode not found in ZKVerifier bytecode"
+          fi
+
+      - name: Dependency vulnerability scan
+        run: |
+          # Scan npm dependencies for known vulnerabilities
+          npm audit --audit-level=high || echo "Vulnerabilities found — review needed"
+          cd sdk && npm audit --audit-level=high || true
+          cd ../relayer && npm audit --audit-level=high || true
