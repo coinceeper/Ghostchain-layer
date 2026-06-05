@@ -1,0 +1,18 @@
+{
+  "ceremony": "GhostChain Phase 2 Trusted Setup",
+  "version": "1.0.0",
+  "phase1": {
+    "ptau": {
+      "source": "Hermez Phase 1 Beacon",
+      "file": "powersOfTau28_hez_final_16.ptau",
+      "constraints": 16,
+      "url": "https://hermez.s3.amazonaws.com/powersOfTau28_hez_final_16.ptau"
+    }
+  },
+  "circuits": {},
+  "participants": [],
+  "beacon": null,
+  "finalized": false,
+  "createdAt": null,
+  "finalizedAt": null
+}

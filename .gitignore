@@ -29,6 +29,12 @@ zk/proof.json
 zk/public.json
 zk/witness.wtns
 
+# ───── ZK Ceremony Artifacts (keep manifest, ignore zkey files) ─────
+zk/ceremony/*.zkey
+# Keep the manifest committed (it tracks hashes & participants)
+# zk/ceremony/manifest.json is NOT ignored
+# zk/ceremony/.gitkeep is NOT ignored
+
 # ───── Environment Files ─────
 .env
 .env.local

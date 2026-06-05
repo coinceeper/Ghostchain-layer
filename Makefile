@@ -13,7 +13,11 @@
         build-contracts build-sdk build-relayer build-zk build-docker \
         test-contracts test-sdk test-relayer test-zk test-all \
         deploy-testnet deploy-mainnet \
-        docker-up docker-up-prod docker-down
+        docker-up docker-up-prod docker-down \
+        setup-ptau setup-ceremony \
+        ceremony-init ceremony-contribute ceremony-status \
+        ceremony-verify ceremony-verify-contribution \
+        ceremony-beacon ceremony-export ceremony-hash ceremony-full
 
 # ───── Help ─────
 help: ## Show this help
@@ -133,5 +137,40 @@ setup-ptau: ## Download Powers of Tau ceremony file
 	mkdir -p zk/ptau
 	curl -L https://hermez.s3.amazonaws.com/powersOfTau28_hez_final_16.ptau -o zk/ptau/powersOfTau28_hez_final_16.ptau
 
-setup-ceremony: setup-ptau ## Run full trusted setup ceremony
+setup-ceremony: setup-ptau ## Run full trusted setup ceremony (single-party, dev only)
 	cd zk && npm run full:setup
+
+# ───── Multi-Party Trusted Setup Ceremony ─────
+ceremony-init: ## Initialize multi-party ceremony for all circuits
+	cd zk && node scripts/ceremony.js init
+
+ceremony-contribute: ## Contribute to the ceremony (usage: make ceremony-contribute NAME="Your Name")
+	cd zk && node scripts/ceremony.js contribute "$(NAME)"
+
+ceremony-status: ## Show ceremony status
+	cd zk && node scripts/ceremony.js status
+
+ceremony-verify: ## Verify the entire ceremony
+	cd zk && node scripts/ceremony.js verify
+
+ceremony-verify-contribution: ## Verify a specific contribution (usage: make ceremony-verify-contribution NAME="Alice")
+	cd zk && node scripts/ceremony.js verify-contribution "$(NAME)"
+
+ceremony-beacon: ## Apply random beacon to finalize ceremony (usage: make ceremony-beacon ENTROPY=<64-char-hex>)
+	cd zk && node scripts/ceremony.js beacon "$(ENTROPY)"
+
+ceremony-export: ## Export verifier contracts and verification keys
+	cd zk && node scripts/ceremony.js export
+
+ceremony-hash: ## Print all contribution hashes
+	cd zk && node scripts/ceremony.js hash
+
+ceremony-full: setup-ptau ceremony-init ## Full ceremony: init with all circuits ready for contributions
+	@echo ""
+	@echo "  Ceremony initialized. Next steps:"
+	@echo "    1. make ceremony-contribute NAME=\"Alice\""
+	@echo "    2. make ceremony-contribute NAME=\"Bob\""
+	@echo "    3. ... (repeat for all participants)"
+	@echo "    4. make ceremony-beacon ENTROPY=<block-hash>"
+	@echo "    5. make ceremony-export"
+	@echo ""

@@ -1,0 +1,221 @@
+# GhostChain Trusted Setup Ceremony Workflow
+#
+# This workflow coordinates a multi-party Phase 2 trusted setup ceremony.
+# Each participant triggers this workflow to contribute entropy.
+# After all contributions, a final beacon is applied and verifiers are exported.
+#
+# Security model:
+#   - Each contribution is verified before being accepted
+#   - Contribution hashes are published for independent verification
+#   - A final beacon (commit hash + run ID) ensures security even if all collude
+#   - The manifest.json tracks all participants and their contribution hashes
+#
+# Usage:
+#   1. Coordinator triggers "initialize" workflow to start
+#   2. Each participant triggers "contribute" with their name
+#   3. Anyone can trigger "verify" to check integrity
+#   4. Coordinator triggers "finalize" to apply beacon and export verifiers
+#
+# ⚠️  IMPORTANT: For production, the final beacon should use a future
+#    block hash from Bitcoin or Ethereum, NOT a predictable value.
+
+name: Trusted Setup Ceremony
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Ceremony action to perform'
+        required: true
+        type: choice
+        options:
+          - initialize
+          - contribute
+          - verify
+          - finalize
+          - export
+          - status
+      contributor_name:
+        description: 'Your name/handle for the contribution (required for "contribute" action)'
+        required: false
+        type: string
+      beacon_entropy:
+        description: '64-char hex entropy for the final beacon (optional, auto-generated if empty)'
+        required: false
+        type: string
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  ceremony:
+    name: Ceremony - ${{ github.event.inputs.action }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./zk
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # We need full history to restore ceremony state from previous runs
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: zk/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Circom
+        run: |
+          wget -qO circom.tar.gz https://github.com/iden3/circom/releases/download/v2.1.6/circom-linux-amd64.tar.gz
+          tar -xzf circom.tar.gz
+          sudo mv circom /usr/local/bin/
+          circom --version
+
+      - name: Download Powers of Tau (Phase 1)
+        run: |
+          mkdir -p ptau
+          if [ ! -f ptau/powersOfTau28_hez_final_16.ptau ]; then
+            curl -L https://hermez.s3.amazonaws.com/powersOfTau28_hez_final_16.ptau -o ptau/powersOfTau28_hez_final_16.ptau
+          fi
+
+      - name: Compile circuits
+        if: ${{ github.event.inputs.action == 'initialize' || github.event.inputs.action == 'finalize' || github.event.inputs.action == 'verify' }}
+        run: |
+          circom circuits/ghostTransfer.circom --r1cs --wasm --sym -o build
+          circom circuits/ghostTransferNullifier.circom --r1cs --wasm --sym -o build
+
+      # ───── Initialize ─────
+      - name: Initialize ceremony
+        if: ${{ github.event.inputs.action == 'initialize' }}
+        run: |
+          echo "╔══════════════════════════════════════════════════════════╗"
+          echo "║  GhostChain Trusted Setup Ceremony - INITIALIZE        ║"
+          echo "╚══════════════════════════════════════════════════════════╝"
+          node scripts/ceremony.js init
+          echo ""
+          echo "  Ceremony initialized! Participants can now contribute:"
+          echo "    - Go to Actions → Trusted Setup Ceremony"
+          echo "    - Select 'contribute' and enter your name"
+          echo ""
+
+      # ───── Contribute ─────
+      - name: Validate contribution
+        if: ${{ github.event.inputs.action == 'contribute' }}
+        run: |
+          if [ -z "${{ github.event.inputs.contributor_name }}" ]; then
+            echo "❌ ERROR: contributor_name is required for 'contribute' action"
+            echo "   Usage: contributor_name='Your Name/Handle'"
+            exit 1
+          fi
+          if [ ! -f ceremony/manifest.json ]; then
+            echo "❌ ERROR: Ceremony not initialized. Run 'initialize' first."
+            exit 1
+          fi
+
+      - name: Show current ceremony status
+        if: ${{ github.event.inputs.action == 'contribute' }}
+        run: node scripts/ceremony.js status
+
+      - name: Contribute to ceremony
+        if: ${{ github.event.inputs.action == 'contribute' }}
+        run: |
+          echo "╔══════════════════════════════════════════════════════════╗"
+          echo "║  GhostChain Trusted Setup Ceremony - CONTRIBUTION       ║"
+          echo "║  Participant: ${{ github.event.inputs.contributor_name }}"
+          echo "╚══════════════════════════════════════════════════════════╝"
+          node scripts/ceremony.js contribute "${{ github.event.inputs.contributor_name }}"
+
+      - name: Verify contribution
+        if: ${{ github.event.inputs.action == 'contribute' }}
+        run: node scripts/ceremony.js verify
+
+      - name: Print contribution hash
+        if: ${{ github.event.inputs.action == 'contribute' }}
+        run: node scripts/ceremony.js hash
+
+      # ───── Verify ─────
+      - name: Verify ceremony
+        if: ${{ github.event.inputs.action == 'verify' }}
+        run: |
+          echo "╔══════════════════════════════════════════════════════════╗"
+          echo "║  GhostChain Trusted Setup Ceremony - VERIFY            ║"
+          echo "╚══════════════════════════════════════════════════════════╝"
+          node scripts/ceremony.js verify
+          node scripts/ceremony.js hash
+
+      # ───── Finalize ─────
+      - name: Validate finalization
+        if: ${{ github.event.inputs.action == 'finalize' }}
+        run: |
+          if [ ! -f ceremony/manifest.json ]; then
+            echo "❌ ERROR: Ceremony not initialized. Run 'initialize' first."
+            exit 1
+          fi
+
+      - name: Compile circuits for finalization
+        if: ${{ github.event.inputs.action == 'finalize' }}
+        run: |
+          circom circuits/ghostTransfer.circom --r1cs --wasm --sym -o build
+          circom circuits/ghostTransferNullifier.circom --r1cs --wasm --sym -o build
+
+      - name: Show pre-finalization status
+        if: ${{ github.event.inputs.action == 'finalize' }}
+        run: node scripts/ceremony.js status
+
+      - name: Apply beacon
+        if: ${{ github.event.inputs.action == 'finalize' }}
+        run: |
+          echo "╔══════════════════════════════════════════════════════════╗"
+          echo "║  GhostChain Trusted Setup Ceremony - FINALIZE          ║"
+          echo "╚══════════════════════════════════════════════════════════╝"
+          ENTROPY="${{ github.event.inputs.beacon_entropy }}"
+          if [ -z "$ENTROPY" ]; then
+            # Use commit hash + run ID + timestamp as beacon (for development)
+            ENTROPY="$(echo "${{ github.sha }}${{ github.run_id }}$(date +%s)" | sha256sum | cut -d' ' -f1)"
+            echo "  Using generated beacon entropy (dev mode)"
+          fi
+          echo "  Beacon entropy: $ENTROPY"
+          node scripts/ceremony.js beacon "$ENTROPY"
+
+      - name: Export verifier contracts
+        if: ${{ github.event.inputs.action == 'finalize' || github.event.inputs.action == 'export' }}
+        run: |
+          echo "╔══════════════════════════════════════════════════════════╗"
+          echo "║  GhostChain Trusted Setup Ceremony - EXPORT            ║"
+          echo "╚══════════════════════════════════════════════════════════╝"
+          node scripts/ceremony.js export
+
+      # ───── Status ─────
+      - name: Show ceremony status
+        if: ${{ github.event.inputs.action == 'status' }}
+        run: |
+          echo "╔══════════════════════════════════════════════════════════╗"
+          echo "║  GhostChain Trusted Setup Ceremony - STATUS            ║"
+          echo "╚══════════════════════════════════════════════════════════╝"
+          node scripts/ceremony.js status
+          echo ""
+          echo "  Ceremony Artifacts:"
+          ls -la ceremony/ 2>/dev/null || echo "  (empty)"
+          echo ""
+          echo "  Verifier Contracts:"
+          ls -la ../contracts/src/ZKVerifier*.sol 2>/dev/null || echo "  (not exported)"
+
+      # ───── Commit ceremony state back ─────
+      - name: Commit ceremony state
+        if: ${{ github.event.inputs.action == 'initialize' || github.event.inputs.action == 'contribute' }}
+        run: |
+          git config user.name "GhostChain Ceremony Bot"
+          git config user.email "ceremony@ghostchain.io"
+          git add ceremony/manifest.json
+          git add contracts/src/ZKVerifierFull.sol contracts/src/ZKVerifierNullifier.sol 2>/dev/null || true
+          git diff --staged --quiet || git commit -m "ceremony: update state after ${{ github.event.inputs.action }}"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

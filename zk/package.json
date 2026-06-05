@@ -16,7 +16,14 @@
     "prove:bootstrap": "node test/ghostTransfer.test.js",
     "test": "node test/ghostTransfer.test.js",
     "full:setup": "npm run build:all && npm run setup && npm run setup:final && npm run export:vk && npm run export:verifier",
-    "clean": "rm -rf build ptau"
+    "ceremony:init": "node scripts/ceremony.js init",
+    "ceremony:contribute": "node scripts/ceremony.js contribute",
+    "ceremony:verify": "node scripts/ceremony.js verify",
+    "ceremony:beacon": "node scripts/ceremony.js beacon",
+    "ceremony:export": "node scripts/ceremony.js export",
+    "ceremony:status": "node scripts/ceremony.js status",
+    "ceremony:hash": "node scripts/ceremony.js hash",
+    "clean": "rm -rf build ptau ceremony/*.zkey"
   },
   "devDependencies": {
     "circomlib": "^2.0.5",
