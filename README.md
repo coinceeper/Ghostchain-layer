@@ -501,6 +501,16 @@ This project is licensed under the **MIT License** — see the [LICENSE](./LICEN
 
 ---
 
+## Authors
+
+- **Mohammad Nazarnejad** ([@coinceeper](https://github.com/coinceeper)) — Creator & Lead Developer
+
+*این ایده و اجرا کار محمد نظرنژاد می‌باشد. کلیه حقوق مربوط به مفهوم، معماری و کد به ایشان تعلق دارد.*
+
+*GhostChain Layer was conceived, designed, and implemented by Mohammad Nazarnejad. All rights to the concept, architecture, and code are attributed to him.*
+
+---
+
 <div align="center">
   <p>Built with ❤️ for financial privacy and censorship resistance</p>
   <p>
