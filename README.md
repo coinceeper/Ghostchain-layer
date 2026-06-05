@@ -2,6 +2,8 @@
   <h1>GhostChain Layer</h1>
   <p><strong>Censorship-Resistant Privacy Protocol for Cross-Chain Stablecoin Transfers</strong></p>
   
+  <p><em>Created by <strong>Mohammad Nazarnejad</strong></em></p>
+
   <p>
     <a href="https://github.com/coinceeper/Ghostchain-layer/blob/main/LICENSE">
       <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License">
@@ -501,18 +503,19 @@ This project is licensed under the **MIT License** — see the [LICENSE](./LICEN
 
 ---
 
-## Authors
+## Creator
 
-- **Mohammad Nazarnejad** ([@coinceeper](https://github.com/coinceeper)) — Creator & Lead Developer
+**GhostChain Layer** was conceived, designed, and implemented by **Mohammad Nazarnejad** — a blockchain engineer and privacy researcher focused on censorship-resistant financial infrastructure.
 
-*این ایده و اجرا کار محمد نظرنژاد می‌باشد. کلیه حقوق مربوط به مفهوم، معماری و کد به ایشان تعلق دارد.*
-
-*GhostChain Layer was conceived, designed, and implemented by Mohammad Nazarnejad. All rights to the concept, architecture, and code are attributed to him.*
+- GitHub: [@coinceeper](https://github.com/coinceeper)
 
 ---
 
 <div align="center">
   <p>Built with ❤️ for financial privacy and censorship resistance</p>
+  <p>
+    <strong>Mohammad Nazarnejad</strong> &mdash; Creator &amp; Lead Developer
+  </p>
   <p>
     <a href="https://github.com/coinceeper/Ghostchain-layer/issues">Report Bug</a>
     ·

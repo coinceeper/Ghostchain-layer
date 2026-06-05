@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "GhostChain Solver/Relayer - Off-chain service for intent-based cross-chain routing. Monitors intents, manages liquidity, and fulfills swaps across multiple chains.",
+  "author": "Mohammad Nazarnejad",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use GhostChain Layer in your research, please cite this software."
+title: "GhostChain Layer"
+version: 0.1.0
+date-released: 2026-06-06
+authors:
+  - family-names: "Nazarnejad"
+    given-names: "Mohammad"
+    alias: "coinceeper"
+    affiliation: "GhostChain Protocol"
+    orcid: ""
+license: "MIT"
+repository-code: "https://github.com/coinceeper/Ghostchain-layer"
+abstract: "A censorship-resistant privacy protocol for cross-chain stablecoin transfers using ZK-SNARK proofs, ephemeral smart contracts, and intent-based routing."
+keywords:
+  - "zero-knowledge proofs"
+  - "privacy"
+  - "blockchain"
+  - "stablecoin"
+  - "stealth-addresses"
+  - "cross-chain"
+  - "solidity"
+  - "circom"

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "GhostChain SDK - Multi-chain client library for censorship-resistant private USDT transfers with ZK proofs and intent-based routing",
+  "author": "Mohammad Nazarnejad",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
