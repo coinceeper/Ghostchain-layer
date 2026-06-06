@@ -270,7 +270,7 @@ npm test -w relayer -- test/integration.test.ts
 ### 1. Derive Identity
 
 ```typescript
-import { deriveIdentity } from '@ghostchain/sdk';
+import { deriveIdentity } from 'ghostchain-sdk';
 import { mnemonicToSeedSync } from '@noble/hashes/utils';
 
 // Derive from a BIP-39 mnemonic
@@ -287,7 +287,7 @@ console.log('Viewing Key:', identity.viewingPublicKey);
 ### 2. Generate Ghost Address
 
 ```typescript
-import { generateGhostAddress } from '@ghostchain/sdk';
+import { generateGhostAddress } from 'ghostchain-sdk';
 
 // Sender generates a one-time ghost address for the recipient
 const ghostAddress = generateGhostAddress(
@@ -305,7 +305,7 @@ console.log('Ephemeral PubKey:', ghostAddress.ephemeralPublicKey);
 ### 3. Recipient Scans for Incoming Transfers
 
 ```typescript
-import { scanGhostAddress } from '@ghostchain/sdk';
+import { scanGhostAddress } from 'ghostchain-sdk';
 
 // Recipient scans the event log using their viewing key
 const detectedAddress = scanGhostAddress(
@@ -322,7 +322,7 @@ if (detectedAddress) {
 ### 4. Cross-Chain Transfer (Full Pipeline)
 
 ```typescript
-import { GhostChainClient, performCrossChainTransfer } from '@ghostchain/sdk';
+import { GhostChainClient, performCrossChainTransfer } from 'ghostchain-sdk';
 import { getChainById } from 'viem/chains';
 
 // Configure chains
