@@ -105,6 +105,20 @@ deploy-testnet: ## Deploy to testnet (set RPC_URL and PRIVATE_KEY)
 		--verify \
 		-vvv
 
+deploy-testnet-arbitrum-sepolia: ## Deploy to Arbitrum Sepolia testnet
+	cd contracts && forge script script/DeployFactory.s.sol \
+		--rpc-url arbitrum_sepolia \
+		--broadcast \
+		--verify \
+		-vvv
+
+deploy-testnet-base-sepolia: ## Deploy to Base Sepolia testnet
+	cd contracts && forge script script/DeployFactory.s.sol \
+		--rpc-url base_sepolia \
+		--broadcast \
+		--verify \
+		-vvv
+
 deploy-mainnet: ## Deploy to mainnet (PRODUCTION mode, requires full Groth16 verifier)
 	cd contracts && PRODUCTION_MODE=true BOOTSTRAP_MODE=false \
 		forge script script/DeployFactory.s.sol \
@@ -112,6 +126,9 @@ deploy-mainnet: ## Deploy to mainnet (PRODUCTION mode, requires full Groth16 ver
 		--broadcast \
 		--verify \
 		-vvv
+
+frontend: ## Start frontend demo server
+	cd frontend && python3 -m http.server 5173
 
 # ───── Docker ─────
 docker-up: ## Start services (development)

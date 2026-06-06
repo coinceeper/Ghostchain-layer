@@ -1,0 +1,9 @@
+{
+  "name": "ghostchain-frontend-demo",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Static GhostChain testnet frontend demo for EphemeralFactory contract inspection.",
+  "scripts": {
+    "serve": "python3 -m http.server 5173"
+  }
+}

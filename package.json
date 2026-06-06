@@ -31,7 +31,8 @@
     "sdk",
     "relayer",
     "zk",
-    "packages/*"
+    "packages/*",
+    "frontend"
   ],
   "scripts": {
     "build": "npm run build --workspaces",
@@ -54,6 +55,9 @@
     "deploy:production": "cd contracts && PRODUCTION_MODE=true BOOTSTRAP_MODE=false forge script script/DeployFactory.s.sol --rpc-url $RPC_URL --broadcast --verify -vvv",
     "start:solver": "npm start -w relayer",
     "start:solver:production": "KEY_MANAGER_TYPE=aws-kms USE_FULL_PROVING=true npm start -w relayer",
+    "start:frontend": "cd frontend && python3 -m http.server 5173",
+    "deploy:testnet:arbitrum-sepolia": "cd contracts && forge script script/DeployFactory.s.sol --rpc-url arbitrum_sepolia --broadcast --verify",
+    "deploy:testnet:base-sepolia": "cd contracts && forge script script/DeployFactory.s.sol --rpc-url base_sepolia --broadcast --verify",
     "publish:all": "npm run build && npm publish --workspaces",
     "publish:sdk": "npm run build -w sdk && npm publish -w sdk",
     "publish:relayer": "npm run build -w relayer && npm publish -w relayer",

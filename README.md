@@ -427,6 +427,32 @@ cast call $VERIFIER_ADDRESS "bootstrapMode()(bool)" --rpc-url $RPC_URL
 # Should return: false
 ```
 
+### Testnet Deployment Shortcuts
+Run one of these commands from the repo root to deploy directly to a supported public testnet:
+
+```bash
+npm run deploy:testnet:arbitrum-sepolia
+npm run deploy:testnet:base-sepolia
+```
+
+For local command usage:
+
+```bash
+make deploy-testnet-arbitrum-sepolia
+make deploy-testnet-base-sepolia
+```
+
+### Demo Frontend
+A simple browser demo is available under `frontend/`.
+It connects with MetaMask, reads a deployed EphemeralFactory contract, and lets you inspect swap state on Arbitrum Sepolia / Base Sepolia.
+
+```bash
+cd frontend
+python3 -m http.server 5173
+```
+
+Open `http://localhost:5173` and connect MetaMask. Enter your deployed factory address and a swap ID to verify contract state.
+
 ### Activating Production Mode
 
 After deploying the full Groth16 verifier (`ZKVerifierFull.sol`), call the one-way switch:
@@ -492,6 +518,8 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 | `MIN_FEE_BPS` | Minimum fee in basis points | `30` (0.3%) |
 | `MAX_FILL_USD` | Maximum fill per transaction | `10000` |
 | `USE_FULL_PROVING` | Use Groth16 proofs (requires zkey) | `false` |
+| `GHOST_TRANSFER_WASM_PATH` | Path to the `ghostTransfer.wasm` circuit file | — |
+| `VERIFICATION_KEY_PATH` | Path to the exported verification key JSON | — |
 | `PRODUCTION_MODE` | Enable production safety guards | `false` |
 | `BOOTSTRAP_MODE` | Enable bootstrap verification (testnet only) | `true` |
 | `REGISTRY_OWNER` | Registry owner (multisig in production) | deployer |
@@ -613,7 +641,7 @@ GhostChain Layer is currently in **Production-Ready Beta Phase**. The core proto
 ### ❌ Still Needed for Production
 - [ ] Third-party security audit (OpenZeppelin / Trail of Bits)
 - [ ] Full Groth16 trusted setup ceremony (multi-party community participation)
-- [ ] Frontend dApp (Next.js + Wagmi)
+- [x] Frontend dApp demo (static browser UI for contract inspection)
 - [ ] Solver network bonding/slashing
 - [ ] Mobile SDK (React Native)
 
@@ -638,6 +666,8 @@ We welcome contributions from the community! Here's how to get started:
 - Follow the existing code style (see `.prettierrc`)
 - Update `.env.example` if adding new environment variables
 - Add JSDoc/Natspec for all public APIs
+- Prefer deep technical commit messages describing the decision, the affected layer, and any protocol safety trade-offs
+- Avoid generic AI-generated commit summaries; keep history readable and reviewable by humans
 
 ---
 

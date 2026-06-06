@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="fa">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GhostChain Testnet Demo</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>GhostChain Testnet Demo</h1>
+        <p>MetaMask + Arbitrum Sepolia / Base Sepolia contract inspector</p>
+      </header>
+
+      <section class="box">
+        <button id="connectButton">Connect Wallet</button>
+        <div id="walletStatus">Wallet not connected</div>
+        <div id="networkStatus"></div>
+      </section>
+
+      <section class="box">
+        <h2>Contract Inspector</h2>
+        <label>
+          EphemeralFactory Address
+          <input id="factoryAddress" placeholder="0x..." />
+        </label>
+        <label>
+          Swap ID (bytes32)
+          <input id="swapId" placeholder="0x..." />
+        </label>
+        <div class="button-row">
+          <button id="getSwapButton">Get Swap</button>
+          <button id="isActiveButton">Is Swap Active?</button>
+        </div>
+      </section>
+
+      <section class="box">
+        <h2>Result</h2>
+        <pre id="result">Waiting for action...</pre>
+      </section>
+
+      <section class="box small">
+        <h2>How to use</h2>
+        <ol>
+          <li>Deploy to Arbitrum Sepolia or Base Sepolia using the repo scripts.</li>
+          <li>Open this page via a local server:</li>
+          <pre>python3 -m http.server 5173</pre>
+          <li>Connect MetaMask and paste your deployed factory address.</li>
+          <li>Enter a swap ID from a deployed swap, then fetch details.</li>
+        </ol>
+      </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.9.2/dist/ethers.umd.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
