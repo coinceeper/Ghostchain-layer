@@ -2,10 +2,8 @@
 pragma solidity ^0.8.24;
 
 /// @title IZKVerifier
-/// @notice Interface for ZK-SNARK proof verification used in the GhostChain protocol.
-///         Supports both Groth16 and PLONK proving systems for flexible deployment,
-///         with a bootstrap mode that uses ECDSA signature verification before the
-///         full Groth16 trusted setup ceremony is completed.
+/// @notice Interface for ZK-SNARK proof verification. Supports Groth16 and PLONK
+///         proving systems, with an ECDSA-based bootstrap mode.
 interface IZKVerifier {
     // ───── Events ─────
 
@@ -28,7 +26,6 @@ interface IZKVerifier {
     // ───── Structs ─────
 
     /// @notice Public inputs for the ghost transfer ZK circuit
-    /// @dev These are the public parameters that the verifier checks against the proof
     struct GhostTransferPublicInputs {
         // Commitment to the sender's identity
         bytes32 senderCommitment;
@@ -66,8 +63,7 @@ interface IZKVerifier {
         GhostTransferPublicInputs calldata publicInputs
     ) external returns (bool);
 
-    /// @notice Verifies a proof with auto-detection of proving system
-    /// @param proofType 0 for Groth16, 1 for PLONK
+    /// @notice Verifies a proof. proofType: 0 = Groth16, 1 = PLONK
     /// @param proof The encoded proof
     /// @param publicInputs The public inputs
     /// @return True if verification succeeds
@@ -77,8 +73,7 @@ interface IZKVerifier {
         GhostTransferPublicInputs calldata publicInputs
     ) external returns (bool);
 
-    /// @notice Returns the verification key hash for the current circuit
-    /// @dev Used to ensure the verifier is using the correct circuit
+    /// @notice Returns the verification key hash
     function verificationKeyHash() external view returns (bytes32);
 
     /// @notice Upgrades to a full generated verifier contract
@@ -90,9 +85,8 @@ interface IZKVerifier {
     function bootstrapMode() external view returns (bool);
 
     /// @notice Returns whether production mode is active
-    /// @return True if production mode is active (bootstrap blocked, full verifier required)
     function productionMode() external view returns (bool);
 
-    /// @notice Activates production mode (one-way switch, permanently disables bootstrap)
+    /// @notice Activates production mode (one-way switch)
     function activateProductionMode() external;
 }

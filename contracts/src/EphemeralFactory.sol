@@ -7,17 +7,11 @@ import { IERC20 } from "./interfaces/IERC20.sol";
 import { EphemeralRouter } from "./EphemeralRouter.sol";
 
 /// @title EphemeralFactory
-/// @notice Core factory contract that creates and manages one-time ephemeral swap
-///         contracts for private, censorship-resistant USDT transfers. Each swap
-///         is backed by ZK proofs for privacy and atomicity.
+/// @notice Creates and manages one-time ephemeral swap contracts for private
+///         USDT transfers backed by ZK proofs.
 ///
-/// @dev This contract supports two modes:
-///      1. Direct Escrow (gas-efficient): Tokens are locked directly in this contract.
-///         Ideal for L2 networks like Arbitrum and Base.
-///      2. ERC-1167 Minimal Proxy: Each swap gets its own lightweight proxy contract
-///         (~100k gas) that delegates to EphemeralRouter. More censorship-resistant
-///         as each swap is a standalone contract. The proxy address is stored in the
-///         swap struct and used during fulfillment to transfer tokens from the proxy.
+/// @dev Two modes: direct escrow (gas-efficient for L2s) and ERC-1167 minimal
+///      proxy (more censorship-resistant, ~100k gas per proxy).
 contract EphemeralFactory is IEphemeralFactory {
     // ───── State ─────
 
@@ -48,7 +42,7 @@ contract EphemeralFactory is IEphemeralFactory {
 
     // ───── Events ─────
 
-    /// @notice Emitted when a minimal proxy ephemeral contract is created
+    /// @notice Emitted when a minimal proxy contract is deployed
     /// @param proxy Address of the deployed minimal proxy
     /// @param creator Address of the user who created it
     /// @param timestamp Block timestamp of creation
@@ -332,7 +326,6 @@ contract EphemeralFactory is IEphemeralFactory {
     // ───── ERC-1167 Minimal Proxy ─────
 
     /// @notice Creates an ERC-1167 minimal proxy that delegates to the implementation.
-    ///         The proxy bytecode is only 45 bytes, costing ~100k gas to deploy.
     /// @param target The implementation contract to delegate to
     /// @return proxy The address of the created proxy
     function _createMinimalProxy(address target) internal returns (address proxy) {

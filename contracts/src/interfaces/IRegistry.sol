@@ -2,10 +2,8 @@
 pragma solidity ^0.8.24;
 
 /// @title IRegistry
-/// @notice Multi-chain registry for GhostChain protocol contract addresses.
-///         Stores the canonical addresses of EphemeralFactory and ZKVerifier
-///         deployments across all supported chains. Acts as the source of truth
-///         for the SDK and Relayer to discover contract addresses per chain.
+/// @notice Multi-chain registry for protocol contract addresses across all
+///         supported chains. Used by the SDK and Relayer for address discovery.
 interface IRegistry {
     // ───── Events ─────
 

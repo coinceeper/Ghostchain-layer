@@ -5,49 +5,30 @@ import { IZKVerifier } from "./interfaces/IZKVerifier.sol";
 import { Ownable } from "./lib/Ownable.sol";
 
 /// @title ZKVerifier
-/// @notice ZK-SNARK proof verifier for the GhostChain protocol. Supports Groth16
-///         verification with an upgrade path to PLONK. Uses a circuit-agnostic
-///         verification approach where the proving system type is set at deployment.
+/// @notice ZK-SNARK proof verifier supporting Groth16 with an upgrade path to PLONK.
 ///
-/// @dev During the bootstrap phase, this contract implements an ECDSA-based
-///      verification that only accepts signatures from the authorized signer.
-///      When the full snarkjs-generated Groth16 verifier (ZKVerifierFull.sol) is
-///      deployed, this contract's verify function can point to the new verifier.
-///
-///      BOOTSTRAP SECURITY: In bootstrap mode, the proof is an ECDSA signature
-///      from the protocol's authorized solver key. The verifier checks that
-///      ecrecover(publicInputHash, signature) == authorizedSigner. This provides
-///      structural/sender authentication but is NOT zero-knowledge. For full ZK
-///      security, deploy the Groth16 verifier and activate production mode.
-///
-///      PRODUCTION MODE: When `productionMode` is enabled, bootstrap verification
-///      is BLOCKED and a full Groth16/PLONK verifier MUST be set via
-///      `upgradeVerifier()` before any proof can be verified. This prevents
-///      non-ZK proofs in production. Admin functions are gated by owner.
+/// @dev Bootstrap phase uses ECDSA signatures from the authorized signer.
+///      When the full Groth16 verifier is deployed, verify() delegates to it.
+///      Production mode permanently blocks bootstrap proofs.
 contract ZKVerifier is IZKVerifier, Ownable {
     // ───── State ─────
 
-    /// @notice Hash of the verification key to ensure circuit integrity
+    /// @notice Hash of the verification key
     bytes32 public immutable verificationKeyHash;
 
-    /// @notice The proving system type (0 = Groth16, 1 = PLONK)
+    /// @notice Proving system type (0 = Groth16, 1 = PLONK)
     uint8 public immutable provingSystem;
 
-    /// @notice Address of the full generated verifier contract (address(0) = bootstrap mode)
+    /// @notice Address of the full verifier contract (address(0) = bootstrap mode)
     address public fullVerifier;
 
-    /// @notice Flag indicating bootstrap mode (true = placeholder, no full Groth16 yet)
+    /// @notice If true, operates with ECDSA-based placeholder proofs
     bool public immutable bootstrapMode;
 
-    /// @notice Flag indicating production mode. When true, bootstrap verification is blocked
-    ///         and a full verifier MUST be set before any proofs can be verified.
-    /// @dev    This is a mutable safety flag: can only be SET to true, never unset.
-    ///         Once production mode is activated, bootstrap fallback is permanently disabled.
+    /// @notice When true, bootstrap verification is blocked. One-way switch.
     bool public productionMode;
 
-    /// @notice In bootstrap mode, only proofs signed by this address are accepted.
-    /// @dev    This prevents arbitrary ECDSA forgeries. Set to the protocol's
-    ///         authorized solver key during development.
+    /// @notice Address whose signature is accepted in bootstrap mode
     address public immutable authorizedSigner;
 
     // ───── Events ─────
@@ -84,8 +65,7 @@ contract ZKVerifier is IZKVerifier, Ownable {
     // ───── Admin (Owner Only) ─────
 
     /// @notice Upgrades to a full generated verifier contract.
-    /// @dev    Only callable by the contract owner.
-    /// @param _fullVerifier The address of the generated Groth16/PLONK verifier
+    /// @param _fullVerifier Address of the Groth16/PLONK verifier
     function upgradeVerifier(address _fullVerifier) external onlyOwner {
         if (_fullVerifier == address(0)) revert InvalidVerifierAddress();
         if (fullVerifier != address(0)) revert AlreadyUpgraded();
@@ -94,9 +74,8 @@ contract ZKVerifier is IZKVerifier, Ownable {
     }
 
     /// @notice Activates production mode. Once activated, bootstrap verification is
-    ///         permanently disabled and a full verifier MUST be set. This is a one-way
-    ///         switch — it CANNOT be undone.
-    /// @dev    Only callable by the contract owner. Requires a full verifier to be set.
+    ///         permanently disabled. This is a one-way switch.
+    /// @dev    Requires a full verifier to be set first.
     function activateProductionMode() external onlyOwner {
         if (fullVerifier == address(0)) revert NoFullVerifierSet();
         if (productionMode) revert AlreadyInProductionMode();
@@ -198,22 +177,10 @@ contract ZKVerifier is IZKVerifier, Ownable {
 
     /// @notice Bootstrap verification using ECDSA signature validation.
     ///
-    /// @dev In bootstrap mode (before full Groth16 setup), the "proof" is an
-    ///      ECDSA signature from the authorized signer over the public input hash.
-    ///      The verifier:
-    ///        1. Checks that all public inputs are non-zero (no empty commitments)
-    ///        2. Computes the public input hash from the swap parameters
-    ///        3. Recovers the signer from the ECDSA signature (r, s, v)
-    ///        4. Verifies the recovered signer matches the authorizedSigner
-    ///
-    ///      This is NOT zero-knowledge verification — it authenticates the solver
-    ///      by proving knowledge of the authorized signing key. Full ZK security
-    ///      requires the Groth16/PLONK verifier generated from the Circom circuit.
-    ///
-    ///      The proof bytes encode the following for bootstrap:
-    ///        bytes[0..31]  = signature r component
-    ///        bytes[32..63] = signature s component
-    ///        bytes[64]     = signature v component (27 or 28)
+    /// @dev The proof is an ECDSA signature from the authorized signer over the
+    ///      public input hash. Checks that all inputs are non-zero, computes the
+    ///      hash, recovers the signer via ecrecover, and verifies it matches
+    ///      authorizedSigner. This is NOT zero-knowledge.
     function _verifyBootstrap(
         bytes calldata proof,
         GhostTransferPublicInputs calldata publicInputs

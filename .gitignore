@@ -102,16 +102,5 @@ packages/*/node_modules/
 tmp/
 temp/
 
-# ───── AI Code Generation Disclaimer ─────
-# ⚠️  AI-DEPENDENCY NOTICE ⚠️
-# This repository contains code generated with assistance from Cursor AI.
-# Commit history shows "Co-authored-by: Cursor" in past commits.
-# CRITICAL: Code involving cryptography, financial logic, and smart
-# contracts requires LINE-BY-LINE human review before production use.
-# AI is excellent for boilerplate/DevOps but may miss edge cases in
-# complex cryptographic and financial logic.
-# See AI_USAGE_DISCLAIMER.md for full details.
-#
-
 # ───── Git ─────
 .gitattributes

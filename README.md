@@ -85,14 +85,14 @@ cp .env.example .env
 
 ## Features
 
-- **🔒 ZK-Privacy** — Every transfer is backed by a zero-knowledge proof (Groth16/PLONK). The sender proves ownership of their identity without revealing it.
-- **👻 Stealth Addresses** — One-time ghost addresses per transfer (ERC-5564). Recipients generate unique addresses that only they can detect using their viewing key.
-- **🔀 Cross-Chain Routing** — Intent-based architecture with a competitive Solver network. Users sign intents; solvers compete to fill them.
-- **⛓️ Chain-Agnostic** — Supports 12+ EVM networks (Ethereum, Arbitrum, Polygon, Optimism, Base, BSC, Avalanche, Fantom, Linea, zkSync, Scroll, Mantle). Add a new chain with a single env var.
-- **💸 Gas-Efficient** — ERC-1167 Minimal Proxy pattern reduces deployment cost from ~1M to ~100k gas per swap. via-ir compilation for ZKVerifier.
-- **🛡️ Multi-Layer Security** — Rate limiting, cumulative windows, global kill switch, maximum transaction values, and bonded liquidity for solvers.
-- **🔑 Key Separation** — BIP-44 derived Spending and Viewing keys. Share your viewing key without risking your funds.
-- **🔄 Flash Loan Ready** — Solver network can use flash loans (Aave V3, Uniswap V3, Balancer V2) to fill intents without pre-positioned liquidity.
+- **ZK-Privacy** — Every transfer is backed by a zero-knowledge proof (Groth16/PLONK). The sender proves ownership of their identity without revealing it.
+- **Stealth Addresses** — One-time ghost addresses per transfer (ERC-5564). Recipients generate unique addresses that only they can detect using their viewing key.
+- **Cross-Chain Routing** — Intent-based architecture with a competitive Solver network. Users sign intents; solvers compete to fill them.
+- **Chain-Agnostic** — Supports 12+ EVM networks (Ethereum, Arbitrum, Polygon, Optimism, Base, BSC, Avalanche, Fantom, Linea, zkSync, Scroll, Mantle). Add a new chain with a single env var.
+- **Gas-Efficient** — ERC-1167 Minimal Proxy pattern reduces deployment cost from ~1M to ~100k gas per swap. via-ir compilation for ZKVerifier.
+- **Multi-Layer Security** — Rate limiting, cumulative windows, global kill switch, maximum transaction values, and bonded liquidity for solvers.
+- **Key Separation** — BIP-44 derived Spending and Viewing keys. Share your viewing key without risking your funds.
+- **Flash Loan Ready** — Solver network can use flash loans (Aave V3, Uniswap V3, Balancer V2) to fill intents without pre-positioned liquidity.
 
 ---
 
@@ -656,7 +656,7 @@ This project is licensed under the **MIT License** — see the [LICENSE](./LICEN
 ---
 
 <div align="center">
-  <p>Built with ❤️ for financial privacy and censorship resistance</p>
+  <p>Built for financial privacy and censorship resistance</p>
   <p>
     <strong>Mohammad Nazarnejad</strong> &mdash; Creator &amp; Lead Developer
   </p>

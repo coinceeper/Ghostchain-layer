@@ -5,14 +5,8 @@ import { IRegistry } from "./interfaces/IRegistry.sol";
 import { Ownable } from "./lib/Ownable.sol";
 
 /// @title Registry
-/// @notice Multi-chain registry for GhostChain protocol contract addresses.
-///         Maintains the canonical list of deployed EphemeralFactory and ZKVerifier
-///         addresses across all supported EVM chains. Also tracks supported tokens
-///         per chain for cross-chain intent routing.
-///
-/// @dev This contract is deployed on a governance chain (e.g., Ethereum mainnet).
-///      The SDK and Relayer read from this registry to discover contract addresses.
-///      Updates are gated by the contract owner (multisig in production).
+/// @notice Multi-chain registry for protocol contract addresses across all
+///         supported EVM chains. Also tracks supported tokens per chain.
 contract Registry is IRegistry, Ownable {
     // ───── State ─────
 

@@ -3,9 +3,8 @@ pragma solidity ^0.8.24;
 
 /// @title IEphemeralFactory
 /// @notice Interface for the Ephemeral Factory that creates one-time swap contracts
-///         for censorship-resistant private USDT transfers. Each ephemeral contract
-///         acts as a temporary escrow for a single atomic swap with ZK privacy.
-///         Supports both direct escrow and ERC-1167 minimal proxy patterns.
+///         for private USDT transfers. Supports both direct escrow and ERC-1167
+///         minimal proxy patterns.
 interface IEphemeralFactory {
     // ───── Events ─────
 
@@ -64,7 +63,7 @@ interface IEphemeralFactory {
         bool refunded;
         uint256 createdAt;
         uint256 expiry;
-        /// @notice Address of the ERC-1167 minimal proxy (address(0) for direct escrow)
+        /// @notice Address of the ERC-1167 minimal proxy (address(0) in escrow mode)
         address proxy;
     }
 

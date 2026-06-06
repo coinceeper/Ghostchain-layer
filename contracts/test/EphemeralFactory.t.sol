@@ -9,7 +9,7 @@ import { IZKVerifier } from "../src/interfaces/IZKVerifier.sol";
 import { IEphemeralFactory } from "../src/interfaces/IEphemeralFactory.sol";
 
 /// @title EphemeralFactoryTest
-/// @notice Tests for the EphemeralFactory contract including ERC-1167 proxy creation
+/// @notice Tests for the EphemeralFactory contract
 contract EphemeralFactoryTest is Test {
     EphemeralFactory public factory;
     EphemeralRouter public router;
@@ -398,7 +398,7 @@ contract EphemeralFactoryTest is Test {
 }
 
 /// @title MockERC20
-/// @notice Minimal ERC20 mock for testing
+/// @notice Minimal ERC20 mock for tests
 contract MockERC20 {
     string public name;
     string public symbol;

@@ -315,4 +315,4 @@ The project demonstrates **strong awareness of security architecture** (rate lim
 
 ---
 
-*This self-audit was conducted by automated code review. A third-party security audit from an accredited firm (e.g., OpenZeppelin, Trail of Bits, Consensys Diligence) is strongly recommended before mainnet deployment with real assets.*
+*A third-party security audit from an accredited firm (e.g., OpenZeppelin, Trail of Bits, Consensys Diligence) is strongly recommended before mainnet deployment with real assets.*

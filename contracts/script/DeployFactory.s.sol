@@ -8,31 +8,19 @@ import { ZKVerifier } from "../src/ZKVerifier.sol";
 import { Registry } from "../src/Registry.sol";
 
 /// @title DeployFactory
-/// @notice Dynamic deployment script for the GhostChain protocol contracts.
-///         Chain-agnostic: works on ANY EVM chain without modifying code.
+/// @notice Chain-agnostic deployment script for protocol contracts.
+///         Works on any EVM chain without code changes.
 ///
-/// @dev Usage (any EVM chain):
-///      forge script script/DeployFactory.s.sol --rpc-url <chain_alias> --broadcast
+/// @dev forge script script/DeployFactory.s.sol --rpc-url <chain> --broadcast [--verify]
 ///
-///      Examples:
-///        forge script script/DeployFactory.s.sol --rpc-url arbitrum --broadcast
-///        forge script script/DeployFactory.s.sol --rpc-url base --broadcast
-///        forge script script/DeployFactory.s.sol --rpc-url bsc --broadcast
-///
-///      To verify on Etherscan-like explorers:
-///        forge script script/DeployFactory.s.sol --rpc-url arbitrum --broadcast --verify
-///
-///      RPC aliases are defined in foundry.toml under [rpc_endpoints].
-///      Add a new chain there and deploy with zero code changes.
-///
-/// @notice Environment variables needed:
-///         PRIVATE_KEY           - Deployer private key
-///         USDT_ADDRESS          - (Optional) USDT address on this chain
-///         BOOTSTRAP_MODE        - (Optional, default: true) Use bootstrap verification
-///         PRODUCTION_MODE       - (Optional, default: false) Production safety mode
-///         VERIFIER_ADDRESS      - (Optional) Pre-deployed ZKVerifier address to reuse
-///         REGISTRY_ADDRESS      - (Optional) Existing Registry address for multi-chain
-///         REGISTRY_OWNER        - (Optional, default: deployer) Owner address for Registry
+///      Environment variables:
+///        PRIVATE_KEY           - Deployer private key
+///        USDT_ADDRESS          - (Optional) USDT address on this chain
+///        BOOTSTRAP_MODE        - (Optional, default: true) Use bootstrap verification
+///        PRODUCTION_MODE       - (Optional, default: false) Production safety mode
+///        VERIFIER_ADDRESS      - (Optional) Pre-deployed ZKVerifier to reuse
+///        REGISTRY_ADDRESS      - (Optional) Existing Registry for multi-chain
+///        REGISTRY_OWNER        - (Optional, default: deployer) Registry owner
 contract DeployFactory is Script {
     // ───── Configuration ─────
 
@@ -80,10 +68,10 @@ contract DeployFactory is Script {
                 console.log("  A new ZKVerifier will be deployed. For security, use a pre-audited verifier.");
             }
 
-            console.log("🚀 Deploying in PRODUCTION mode");
+            console.log("Deploying in PRODUCTION mode");
             console.log("  Registry owner:", registryOwner);
         } else {
-            console.log("🧪 Deploying in DEVELOPMENT mode (bootstrap:", bootstrapMode, ")");
+            console.log("Deploying in DEVELOPMENT mode (bootstrap:", bootstrapMode, ")");
         }
 
         vm.startBroadcast(deployer);
