@@ -38,6 +38,8 @@ import type {
   IntentStatus,
   GhostTransferProof,
 } from './types.js';
+import { bytesToHex } from '@noble/hashes/utils';
+import { secp256k1 } from '@noble/curves/secp256k1';
 import { generateGhostAddress, computeGhostTransferCommitment } from './ghost-address.js';
 import { signWithSpendingKey } from './identity.js';
 
@@ -52,6 +54,7 @@ const EPHEMERAL_FACTORY_ABI = [
       { name: 'destinationChain', type: 'uint256' },
       { name: 'commitment', type: 'bytes32' },
       { name: 'expiry', type: 'uint256' },
+      { name: 'recipientGhostAddress', type: 'address' },
       { name: 'ephemeralPublicKey', type: 'bytes' },
       { name: 'viewTag', type: 'uint8' },
     ],
@@ -65,6 +68,8 @@ const EPHEMERAL_FACTORY_ABI = [
       { name: 'swapId', type: 'bytes32' },
       { name: 'proof', type: 'bytes' },
       { name: 'recipient', type: 'address' },
+      { name: 'contractHash', type: 'bytes32' },
+      { name: 'ephemeralPublicKey', type: 'bytes' },
     ],
     outputs: [],
     stateMutability: 'nonpayable',
@@ -87,6 +92,7 @@ const EPHEMERAL_FACTORY_ABI = [
       { name: 'sourceChain', type: 'uint256' },
       { name: 'destinationChain', type: 'uint256' },
       { name: 'commitment', type: 'bytes32' },
+      { name: 'recipientGhostAddress', type: 'address' },
       { name: 'solver', type: 'address' },
       { name: 'fulfilled', type: 'bool' },
       { name: 'refunded', type: 'bool' },
@@ -243,13 +249,12 @@ export class GhostChainClient {
       viewingKey,
     );
 
-    // Compute commitment
+    // FIX GCL-ZK-04: Generate sender commitment = Poseidon(senderPrivateKey, senderRandomness)
+    // The random blinding factor must be stored by the user for future ZK proof generation.
+    const senderRandomness = `0x${bytesToHex(secp256k1.utils.randomPrivateKey())}` as const;
     const commitment = computeGhostTransferCommitment(
-      ghostAddress.address,
-      token,
-      parseUnits(amount, 6), // USDT has 6 decimals
-      BigInt(Date.now()),
-      BigInt(destinationChain),
+      this.config.identity.spendingPrivateKey,
+      senderRandomness,
     );
 
     // Set expiry (1 hour from now)
@@ -271,6 +276,7 @@ export class GhostChainClient {
           BigInt(destinationChain),
           commitment,
           expiry,
+          ghostAddress.address,
           ghostAddress.ephemeralPublicKey,
           ghostAddress.viewTag,
         ],
@@ -336,7 +342,7 @@ export class GhostChainClient {
       args: [swapId],
     });
 
-    const [creator, token, amount, _srcChain, _destChain, _commitment, , fulfilled, refunded, _createdAt, expiry] = data;
+    const [creator, token, amount, _srcChain, _destChain, _commitment, , , fulfilled, refunded, _createdAt, expiry] = data;
 
     let status: IntentStatus;
     if (fulfilled) {

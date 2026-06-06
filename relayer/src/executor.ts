@@ -13,8 +13,8 @@
  *   - Deferred Execution on L2s: Respects chainType for confirmation blocks
  */
 
-import { type PublicClient, type Address, type Hash, formatUnits, keccak256, encodePacked } from 'viem';
-import { getChainById, getChainMetadata } from 'ghostchain-sdk';
+import { type PublicClient, type Address, type Hash, formatUnits, keccak256, encodePacked, encodeFunctionData } from 'viem';
+import { getChainById, getChainMetadata, poseidonHash5, computeContractHash } from 'ghostchain-sdk';
 import type { Logger } from 'pino';
 import type { SwapIntent } from 'ghostchain-sdk';
 import { LiquidityManager } from './liquidity.js';
@@ -57,6 +57,8 @@ export interface SolverConfig {
   minFeeBps: number;
   maxFillAmountUsd: number;
   apiPort: number;
+  // API authentication
+  apiKey?: string;
   // ZK Prover configuration
   zkProver?: ZkProver;
   useFullProving?: boolean;
@@ -327,19 +329,37 @@ export class IntentExecutor {
     try {
       // Step 1: Generate ZK proof for the swap
       const sourceChainId = BigInt(intent.sourceChain);
+
+      // FIX GCL-ZK-04: Compute contractHash using Poseidon matching the circuit:
+      // contractHash = Poseidon(ghostAddress, token, amount, nonce, chainId)
+      // This replaces the previous keccak256(swapId, factoryAddress) which never
+      // matched the circuit's Poseidon constraint.
+      //
+      // Note: ghostAddress is the recipient's ghost address from the intent.
+      // The circuit expects: contractHash = Poseidon(computedGhostAddress, token, amount, nonce, chainId)
+      // where computedGhostAddress = Poseidon(recipientSpendingKeyCommitment, sharedSecret).
+      // The solver must provide the correct contractHash computed off-chain.
+      const contractHash = computeContractHash(
+        BigInt(intent.recipientGhostAddress),
+        BigInt(intent.token),
+        intent.amount,
+        BigInt(intent.id),
+        sourceChainId,
+      );
+
+      // ephemeralPublicKey comes from the SwapIntent, which was populated from
+      // the EphemeralSwapCreated event (which now includes it). The monitor
+      // extracts it at detection time so no additional on-chain fetch is needed.
+      // (Fixes GCL-RL-03: previously hardcoded as '0x00'.)
       const publicInputs: GhostTransferPublicInputs = {
         senderCommitment: intent.commitment,
         recipientCommitment: '0x0000000000000000000000000000000000000000000000000000000000000000',
-        contractHash: keccak256(
-          encodePacked(
-            ['bytes32', 'address'],
-            [intent.id, this.config.factoryAddresses[intent.sourceChain]],
-          ),
-        ),
+        contractHash,
         token: intent.token,
         amount: intent.amount,
         nonce: BigInt(intent.id),
         chainId: sourceChainId,
+        ephemeralPublicKey: intent.ephemeralPublicKey,
       };
 
       const zkResult = await this.generateFulfillmentProof(publicInputs);
@@ -378,7 +398,13 @@ export class IntentExecutor {
         intent.sourceChain,
         {
           to: this.config.factoryAddresses[intent.sourceChain],
-          data: this.encodeFulfillSwapCall(intent.id, zkResult.proof, intent.recipientGhostAddress),
+          data: this.encodeFulfillSwapCall(
+            intent.id,
+            zkResult.proof,
+            intent.recipientGhostAddress,
+            zkResult.publicInputs.contractHash,
+            zkResult.publicInputs.ephemeralPublicKey,
+          ),
           chainId: intent.sourceChain,
         },
       );
@@ -446,20 +472,44 @@ export class IntentExecutor {
 
   /**
    * Encodes a fulfillSwap call for the EphemeralFactory.
+   * Includes ephemeralPublicKey for shared secret binding constraint (GCL-ZK-01 fix).
+   */
+  /**
+   * Encodes a fulfillSwap call for the EphemeralFactory.
+   * New signature: fulfillSwap(bytes32,bytes,address,bytes32,bytes)
+   * - bytes32 swapId
+   * - bytes proof
+   * - address recipient
+   * - bytes32 contractHash (Poseidon binding hash, fixes GCL-ZK-04)
+   * - bytes ephemeralPublicKey
    */
   private encodeFulfillSwapCall(
     swapId: Hash,
     proof: `0x${string}`,
     recipient: Address,
+    contractHash: `0x${string}`,
+    ephemeralPublicKey: `0x${string}`,
   ): `0x${string}` {
-    // fulfillSwap(bytes32 swapId, bytes proof, address recipient)
-    const selector = '0x' + keccak256(new TextEncoder().encode('fulfillSwap(bytes32,bytes,address)')).slice(0, 8);
-    const paddedSwapId = swapId.slice(2).padStart(64, '0');
-    const proofOffset = '0x0000000000000000000000000000000000000000000000000000000000000060'; // offset to proof data
-    const proofLength = proof.length.toString(16).padStart(64, '0');
-    const proofData = proof.slice(2);
-    const paddedRecipient = recipient.slice(2).padStart(64, '0');
-    return `0x${selector}${paddedSwapId}${proofOffset}${paddedRecipient}${proofLength}${proofData}`;
+    // Use viem's encodeFunctionData for safe ABI encoding
+    const abi = [
+      {
+        name: 'fulfillSwap',
+        type: 'function',
+        inputs: [
+          { name: 'swapId', type: 'bytes32' },
+          { name: 'proof', type: 'bytes' },
+          { name: 'recipient', type: 'address' },
+          { name: 'contractHash', type: 'bytes32' },
+          { name: 'ephemeralPublicKey', type: 'bytes' },
+        ],
+      },
+    ] as const;
+
+    return encodeFunctionData({
+      abi,
+      functionName: 'fulfillSwap',
+      args: [swapId, proof, recipient, contractHash, ephemeralPublicKey],
+    });
   }
 
   /**

@@ -23,9 +23,17 @@ interface IZKVerifier {
     /// @notice Emitted when the full verifier contract is upgraded
     event VerifierUpgraded(address indexed newVerifier, uint8 indexed provingSystem);
 
+    /// @notice Emitted when a nullifier is marked as used (double-spend prevention)
+    /// @param nullifier The nullifier value that was consumed
+    /// @param proofHash Hash of the proof bytes
+    event NullifierConsumed(bytes32 indexed nullifier, bytes32 indexed proofHash);
+
     // ───── Structs ─────
 
     /// @notice Public inputs for the ghost transfer ZK circuit
+    /// @dev Matches ghostTransfer.circom public inputs.
+    ///      ephemeralPublicKey is included to verify the shared secret
+    ///      derivation constraint (fixes GCL-ZK-01).
     struct GhostTransferPublicInputs {
         // Commitment to the sender's identity
         bytes32 senderCommitment;
@@ -41,6 +49,39 @@ interface IZKVerifier {
         uint256 nonce;
         // Chain ID where this proof is being verified
         uint256 chainId;
+        // Ephemeral public key (R = r*G) emitted in the swap event.
+        // The circuit derives sharedSecret = Poseidon(senderPrivateKey, ephemeralPublicKey)
+        // internally, preventing the prover from injecting arbitrary values.
+        bytes ephemeralPublicKey;
+    }
+
+    // ───── Public Inputs for Nullifier-Based Proofs ─────
+
+    /// @notice Public inputs for the nullifier-based ghost transfer ZK circuit
+    /// @dev Matches the public inputs of ghostTransferNullifier.circom:
+    ///      nullifier, merkleRoot, recipient, viewTag, ephemeralPublicKey
+    ///      Plus token, amount, chainId for binding to the swap context.
+    struct NullifierProofPublicInputs {
+        /// @notice Unique nullifier preventing double-spend
+        ///         Poseidon(spendingKey, amount, ephemeralKey)
+        bytes32 nullifier;
+        /// @notice Root of the Merkle tree containing the commitment
+        bytes32 merkleRoot;
+        /// @notice Recipient's stealth address (public for routing)
+        address recipient;
+        /// @notice View tag: first 8 bits of Poseidon(sharedSecret) for scanning
+        uint8 viewTag;
+        /// @notice The token address used in the swap
+        address token;
+        /// @notice The amount being transferred
+        uint256 amount;
+        /// @notice Chain ID where this proof is being verified
+        uint256 chainId;
+        /// @notice Ephemeral public key (R = r*G) emitted in the swap event.
+        ///         The circuit derives sharedSecret = Poseidon(spendingKey, ephemeralPublicKey)
+        ///         internally, preventing the prover from injecting arbitrary values
+        ///         and fixing GCL-ZK-01.
+        bytes ephemeralPublicKey;
     }
 
     // ───── Core Functions ─────
@@ -72,6 +113,25 @@ interface IZKVerifier {
         bytes calldata proof,
         GhostTransferPublicInputs calldata publicInputs
     ) external returns (bool);
+
+    /// @notice Verifies a nullifier-based ZK proof and atomically marks the nullifier
+    ///         as consumed to prevent double-spending.
+    /// @dev    This is the primary verification path for ghostTransferNullifier.circom.
+    ///         The nullifier is checked and marked atomically within this call.
+    /// @param proofType 0 = Groth16, 1 = PLONK
+    /// @param proof The encoded ZK proof
+    /// @param publicInputs The nullifier proof public inputs
+    /// @return True if verification succeeds and nullifier was not previously used
+    function verifyNullifierProof(
+        uint8 proofType,
+        bytes calldata proof,
+        NullifierProofPublicInputs calldata publicInputs
+    ) external returns (bool);
+
+    /// @notice Checks whether a nullifier has already been consumed
+    /// @param nullifier The nullifier to check
+    /// @return True if the nullifier has been used in a previous proof
+    function isNullifierUsed(bytes32 nullifier) external view returns (bool);
 
     /// @notice Returns the verification key hash
     function verificationKeyHash() external view returns (bytes32);

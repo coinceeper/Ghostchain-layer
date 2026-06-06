@@ -7,15 +7,18 @@
 //   1. The sender owns a commitment in the Merkle tree (deposit)
 //   2. The spending key matches the commitment's owner
 //   3. The nullifier is correctly derived (preventing double-spend)
-//   4. The recipient's ghost address is correctly bound
+//   4. The shared secret is derived from the spending key and
+//      ephemeral public key (ELIMINATES GCL-ZK-01)
+//   5. The recipient's ghost address is correctly bound
+//
+// sharedSecret is NOT a free private input — it is derived inside
+// the circuit as Poseidon(spendingKey, ephemeralPublicKey). This
+// prevents the prover from injecting an arbitrary value.
 //
 // Without revealing:
 //   - Which leaf in the Merkle tree is being spent
 //   - The sender's spending key
 //   - The recipient's ghost address derivation
-//
-// This is inspired by Tornado Cash-style privacy pools adapted
-// for cross-chain USDT transfers with stealth addressing.
 
 pragma circom 2.1.0;
 
@@ -112,9 +115,6 @@ template GhostTransferNullifier(merkleLevels) {
     // Recipient's spending public key components
     signal private input recipientSpendingKey[2];
 
-    // Shared secret from ECDH for stealth address derivation
-    signal private input sharedSecret;
-
     // ───── Public Inputs ─────
     // Visible to the verifier on-chain
 
@@ -131,6 +131,9 @@ template GhostTransferNullifier(merkleLevels) {
     // View tag: first 8 bits of Poseidon(sharedSecret) for scanning
     signal input viewTag;
 
+    // Ephemeral public key (R = r * G) emitted in the swap event
+    signal public input ephemeralPublicKey;
+
     // ───── Internal Signals ─────
 
     // Commitment = Poseidon(spendingKey, ephemeralKey)
@@ -138,6 +141,10 @@ template GhostTransferNullifier(merkleLevels) {
 
     // Computed nullifier
     signal computedNullifier;
+
+    // Shared secret derived inside the circuit (NOT a free private input)
+    // sharedSecret = Poseidon(spendingKey, ephemeralPublicKey)
+    signal sharedSecret;
 
     // ───── Constraints ─────
 
@@ -166,7 +173,17 @@ template GhostTransferNullifier(merkleLevels) {
     // Assert: computed nullifier matches public input
     computedNullifier === nullifier;
 
-    // 4. Compute ghost address commitment
+    // 4. Derive shared secret from spending key and ephemeral public key.
+    //    This constraint ELIMINATES GCL-ZK-01: the prover can no longer supply
+    //    an arbitrary sharedSecret — it is deterministically derived inside the
+    //    circuit from values the prover must honestly provide.
+    //    sharedSecret = Poseidon(spendingKey, ephemeralPublicKey)
+    component ssHasher = Hash2();
+    ssHasher.inputs[0] <== spendingKey;
+    ssHasher.inputs[1] <== ephemeralPublicKey;
+    sharedSecret <== ssHasher.out;
+
+    // 5. Compute ghost address commitment
     //    ghostAddress = Poseidon(recipientSpendingKey, sharedSecret)
     component ghostHasher = Hash3();
     ghostHasher.inputs[0] <== recipientSpendingKey[0];
@@ -178,7 +195,7 @@ template GhostTransferNullifier(merkleLevels) {
     signal ghostAddressHash;
     ghostAddressHash <== ghostHasher.out;
 
-    // 5. Validate view tag: first 8 bits of Poseidon(sharedSecret)
+    // 6. Validate view tag: first 8 bits of Poseidon(sharedSecret)
     //    Using a bit extraction approach
     component sharedSecretHasher = Hash2();
     sharedSecretHasher.inputs[0] <== sharedSecret;
@@ -199,4 +216,4 @@ template GhostTransferNullifier(merkleLevels) {
 // Export the main component with 32-level Merkle tree
 // ────────────────────────────────────────────────────────────
 
-component main { public [nullifier, merkleRoot, recipient, viewTag] } = GhostTransferNullifier(32);
+component main { public [nullifier, merkleRoot, recipient, viewTag, ephemeralPublicKey] } = GhostTransferNullifier(32);

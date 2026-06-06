@@ -9,6 +9,9 @@
  * input hash, providing sender authentication without full trusted setup.
  * Once the Groth16 ceremony is complete, this switches to real snarkjs proofs.
  *
+ * The public input hash now includes ephemeralPublicKey to constrain the
+ * sharedSecret derivation in the circuit (GCL-ZK-01 fix).
+ *
  * @packageDocumentation
  */
 
@@ -26,6 +29,10 @@ export interface GhostTransferPublicInputs {
   amount: bigint;
   nonce: bigint;
   chainId: bigint;
+  /** Ephemeral public key (R = r*G) emitted in the swap event.
+   *  The circuit derives sharedSecret = Poseidon(senderPrivateKey, ephemeralPublicKey)
+   *  internally, preventing the prover from injecting arbitrary values (GCL-ZK-01 fix). */
+  ephemeralPublicKey: `0x${string}`;
 }
 
 export interface ZkProofResult {
@@ -77,6 +84,7 @@ export class ZkProver {
    *   - Sender authentication (only the key owner can sign)
    *   - Integrity binding (proof is bound to specific swap parameters)
    *   - Replay protection (nonce and chainId are included)
+   *   - Shared secret binding (ephemeralPublicKey is included in the hash)
    *
    * In full proving mode, generates a real Groth16/PLONK proof.
    *
@@ -85,7 +93,18 @@ export class ZkProver {
    */
   async generateProof(publicInputs: GhostTransferPublicInputs): Promise<ZkProofResult> {
     if (this.config.useFullProving && this.config.zkeyPath) {
-      return this.generateGroth16Proof(publicInputs);
+      try {
+        return await this.generateGroth16Proof(publicInputs);
+      } catch (error) {
+        // In strict mode, never silently fall back — propagate the error
+        if (this.config.strictProving) {
+          throw error;
+        }
+        this.logger.warn(
+          `Groth16 proof failed, falling back to bootstrap mode: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return this.generateBootstrapProof(publicInputs);
+      }
     }
     return this.generateBootstrapProof(publicInputs);
   }
@@ -93,14 +112,17 @@ export class ZkProver {
   /**
    * Generates a bootstrap proof (ECDSA signature over public inputs).
    * This is the default mode before the full Groth16 trusted setup.
+   *
+   * The hash includes ephemeralPublicKey to bind the proof to the
+   * specific ephemeral key used in the swap (GCL-ZK-01 fix).
    */
   private async generateBootstrapProof(
     publicInputs: GhostTransferPublicInputs,
   ): Promise<ZkProofResult> {
-    // Compute the public input hash
+    // Compute the public input hash (includes ephemeralPublicKey for shared secret binding)
     const publicInputHash = keccak256(
       encodePacked(
-        ['bytes32', 'bytes32', 'bytes32', 'address', 'uint256', 'uint256', 'uint256'],
+        ['bytes32', 'bytes32', 'bytes32', 'address', 'uint256', 'uint256', 'uint256', 'bytes'],
         [
           publicInputs.senderCommitment,
           publicInputs.recipientCommitment,
@@ -109,6 +131,7 @@ export class ZkProver {
           BigInt(publicInputs.amount),
           BigInt(publicInputs.nonce),
           BigInt(publicInputs.chainId),
+          publicInputs.ephemeralPublicKey,
         ],
       ),
     );
@@ -142,25 +165,25 @@ export class ZkProver {
   /**
    * Generates a full Groth16 proof using snarkjs.
    * Requires the circuit's .zkey file to be available.
+   *
+   * The circuit inputs now include ephemeralPublicKey so the sharedSecret
+   * derivation constraint (Poseidon(senderPrivateKey, ephemeralPublicKey))
+   * is enforced during witness generation (GCL-ZK-01 fix).
    */
   private async generateGroth16Proof(
     _publicInputs: GhostTransferPublicInputs,
   ): Promise<ZkProofResult> {
-    // Lazy-load snarkjs
+    // Lazy-load snarkjs — always throws on failure (no silent fallback)
     if (!this.snarkjs) {
       try {
         this.snarkjs = await import('snarkjs');
       } catch {
-        if (this.config.strictProving) {
-          throw new Error('snarkjs not available and strictProving is enabled');
-        }
-        this.logger.warn('snarkjs not available, falling back to bootstrap proof');
-        return this.generateBootstrapProof(_publicInputs);
+        throw new Error('snarkjs not available for Groth16 proof generation');
       }
     }
 
     try {
-      // Prepare the circuit inputs
+      // Prepare the circuit inputs including ephemeralPublicKey for shared secret binding
       const circuitInputs = {
         senderCommitment: _publicInputs.senderCommitment,
         recipientCommitment: _publicInputs.recipientCommitment,
@@ -169,6 +192,11 @@ export class ZkProver {
         amount: _publicInputs.amount.toString(),
         nonce: _publicInputs.nonce.toString(),
         chainId: _publicInputs.chainId.toString(),
+        // GCL-ZK-01 fix: ephemeralPublicKey is a public input used by the circuit
+        // to derive sharedSecret = Poseidon(senderPrivateKey, ephemeralPublicKey)
+        ephemeralPublicKey: _publicInputs.ephemeralPublicKey,
+        // Note: private inputs (senderPrivateKey, senderRandomness, etc.) must
+        // also be provided by the caller for full witness generation
       };
 
       // Generate the proof
@@ -193,17 +221,9 @@ export class ZkProver {
       };
     } catch (error) {
       this.logger.error('Groth16 proof generation failed:', error);
-
-      // In strict mode, throw instead of silently degrading security
-      if (this.config.strictProving) {
-        throw new Error(
-          `Groth16 proof generation failed and strictProving is enabled: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-
-      // Fall back to bootstrap proof (allowed only when strictProving is off)
-      this.logger.warn('Falling back to bootstrap proof mode (strictProving is disabled)');
-      return this.generateBootstrapProof(_publicInputs);
+      throw new Error(
+        `Groth16 proof generation failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -234,9 +254,10 @@ export class ZkProver {
   ): Promise<boolean> {
     if (!this.config.useFullProving) {
       // Bootstrap mode: verify the ECDSA signature
+      // The hash must match what was signed (includes ephemeralPublicKey)
       const publicInputHash = keccak256(
         encodePacked(
-          ['bytes32', 'bytes32', 'bytes32', 'address', 'uint256', 'uint256', 'uint256'],
+          ['bytes32', 'bytes32', 'bytes32', 'address', 'uint256', 'uint256', 'uint256', 'bytes'],
           [
             publicInputs.senderCommitment,
             publicInputs.recipientCommitment,
@@ -245,6 +266,7 @@ export class ZkProver {
             BigInt(publicInputs.amount),
             BigInt(publicInputs.nonce),
             BigInt(publicInputs.chainId),
+            publicInputs.ephemeralPublicKey,
           ],
         ),
       );

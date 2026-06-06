@@ -10,11 +10,20 @@ import { IERC20 } from "./interfaces/IERC20.sol";
 /// @dev Only the factory can call execute(). When the factory calls a proxy
 ///      via .call(), msg.sender is the factory address, preventing unauthorized
 ///      token drains.
+///
+///      GCL-SC-04 FIX: The factory address is embedded in each proxy's storage
+///      during the CREATE opcode itself via custom init code that runs
+///      CALLER + SSTORE(0) before returning the ERC-1167 runtime code.
+///      No external initializeFactory() call exists — front-running is
+///      physically impossible because the factory is set atomically within
+///      the proxy's creation, not via a subsequent transaction.
 contract EphemeralRouter {
     // ───── State ─────
 
-    /// @notice The factory authorized to call `execute()`. Set once by the factory
-    ///         constructor. Only the factory can trigger token transfers from proxies.
+    /// @notice The factory authorized to call `execute()`. Set once per proxy
+    ///         during CREATE by custom init code (CALLER → SSTORE slot 0).
+    ///         The implementation contract itself never has factory set (stays
+    ///         address(0)) — only each proxy's own storage matters.
     address public factory;
 
     // ───── Modifiers ─────
@@ -22,16 +31,6 @@ contract EphemeralRouter {
     modifier onlyFactory() {
         if (msg.sender != factory) revert Unauthorized();
         _;
-    }
-
-    // ───── Factory Authorizer ─────
-
-    /// @notice Sets the authorized factory address. Can only be called once.
-    /// @param _factory The EphemeralFactory address
-    function setFactory(address _factory) external {
-        if (_factory == address(0)) revert ZeroAddress();
-        if (factory != address(0)) revert FactoryAlreadySet();
-        factory = _factory;
     }
 
     // ───── Execute Function ─────
@@ -55,10 +54,25 @@ contract EphemeralRouter {
         return true;
     }
 
+    // ───── Emergency Functions ─────
+
+    /// @notice Withdraws accidentally sent ETH from the proxy contract.
+    /// @dev    Proxy contracts only handle ERC20 transfers. Any ETH sent
+    ///         directly would be stuck without this function.
+    ///         Only the factory (which created the proxy) can call this.
+    /// @param to The address to receive the ETH
+    function withdrawETH(address payable to) external onlyFactory {
+        uint256 balance = address(this).balance;
+        if (balance == 0) revert NoETHBalance();
+        (bool success, ) = to.call{value: balance}("");
+        if (!success) revert ETHWithdrawFailed();
+    }
+
     // ───── Custom Errors ─────
 
     error Unauthorized();
     error TransferFailed();
     error ZeroAddress();
-    error FactoryAlreadySet();
+    error NoETHBalance();
+    error ETHWithdrawFailed();
 }

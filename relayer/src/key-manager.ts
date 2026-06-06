@@ -13,8 +13,16 @@
  * @packageDocumentation
  */
 
-import { type Address, type Hash, type Account, keccak256, encodeAbiParameters, parseAbiParameters } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import {
+  type Address,
+  type Hash,
+  type Chain,
+  createWalletClient,
+  http,
+  keccak256,
+} from 'viem';
+import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
+import { getChainById } from 'ghostchain-sdk';
 import type { Logger } from 'pino';
 
 // ───── Types ─────
@@ -59,18 +67,27 @@ export interface KeyManager {
 
 /**
  * Local private key manager for development and testing.
- * Uses an in-memory Viem account from a hex private key.
+ * Uses an in-memory Viem account from a hex private key, and actually
+ * broadcasts transactions via Viem WalletClient to configured RPC endpoints.
  *
  * ⚠️ NOT for production use - keys are in plaintext in process memory.
  * Replace with AWSKMSKeyManager or HashiCorpVaultKeyManager for production.
  */
 export class LocalKeyManager implements KeyManager {
-  private account: Account;
+  private account: PrivateKeyAccount;
   private logger: Logger;
+  private rpcEndpoints: Record<number, string>;
+  private walletClients: Map<number, ReturnType<typeof createWalletClient>>;
 
-  constructor(privateKey: `0x${string}`, logger: Logger) {
+  constructor(
+    privateKey: `0x${string}`,
+    logger: Logger,
+    rpcEndpoints: Record<number, string> = {},
+  ) {
     this.account = privateKeyToAccount(privateKey);
     this.logger = logger.child({ module: 'LocalKeyManager' });
+    this.rpcEndpoints = rpcEndpoints;
+    this.walletClients = new Map();
   }
 
   getAddress(): Address {
@@ -82,20 +99,60 @@ export class LocalKeyManager implements KeyManager {
   }
 
   async signAndSendTransaction(
-    _chainId: number,
+    chainId: number,
     tx: TransactionRequest,
   ): Promise<SignedTransaction> {
-    // In local mode, we need a wallet client to send transactions.
-    // This is a simplified implementation - in production,
-    // use the Viem wallet client created in the executor.
-    const txHash = `0x${keccak256(new TextEncoder().encode(JSON.stringify(tx))).slice(2).padStart(64, '0')}` as Hash;
+    // Look up the RPC endpoint for this chain
+    const rpcUrl = this.rpcEndpoints[chainId];
+    if (!rpcUrl) {
+      throw new Error(
+        `LocalKeyManager: No RPC endpoint configured for chain ${chainId}. ` +
+        `Ensure RPC_<CHAIN_SHORT_NAME> is set in environment variables.`,
+      );
+    }
 
+    // Get or create a cached wallet client for this chain
+    let walletClient = this.walletClients.get(chainId);
+    if (!walletClient) {
+      let chain: Chain | undefined;
+      try {
+        chain = getChainById(chainId);
+      } catch {
+        this.logger.warn(
+          `Chain ${chainId} not found in chain registry, proceeding without chain object`,
+        );
+      }
+
+      walletClient = createWalletClient({
+        account: this.account,
+        ...(chain ? { chain } : {}),
+        transport: http(rpcUrl),
+      });
+      this.walletClients.set(chainId, walletClient);
+    }
+
+    // Build and broadcast the transaction via Viem
     this.logger.debug(
-      `[LOCAL KM] Simulated tx: to=${tx.to}, chainId=${tx.chainId}`,
+      `[LOCAL KM] Broadcasting tx: to=${tx.to}, chainId=${chainId}`,
+    );
+
+    const txHash: Hash = await (walletClient.sendTransaction as any)({
+      account: this.account,
+      to: tx.to,
+      data: tx.data,
+      value: tx.value ?? 0n,
+      chainId,
+      ...(tx.gasLimit ? { gas: tx.gasLimit } : {}),
+      ...(tx.maxFeePerGas ? { maxFeePerGas: tx.maxFeePerGas } : {}),
+      ...(tx.maxPriorityFeePerGas ? { maxPriorityFeePerGas: tx.maxPriorityFeePerGas } : {}),
+    });
+
+    this.logger.info(
+      `[LOCAL KM] Transaction broadcast: hash=${txHash}, to=${tx.to}, chainId=${chainId}`,
     );
 
     return {
-      rawTransaction: '0x' as `0x${string}`,
+      rawTransaction: txHash,
       transactionHash: txHash,
       from: this.account.address,
     };
@@ -127,7 +184,12 @@ export class AWSKMSKeyManager implements KeyManager {
   private kmsClient: any; // AWS KMS client
   private kmsKeyId: string;
 
-  constructor(kmsKeyId: string, region: string, logger: Logger) {
+  constructor(
+    kmsKeyId: string,
+    region: string,
+    logger: Logger,
+    _rpcEndpoints?: Record<number, string>,
+  ) {
     this.kmsKeyId = kmsKeyId;
     this.logger = logger.child({ module: 'AWSKMSKeyManager' });
 
@@ -194,16 +256,26 @@ export class AWSKMSKeyManager implements KeyManager {
     _chainId: number,
     tx: TransactionRequest,
   ): Promise<SignedTransaction> {
-    // In production, this would:
-    // 1. Create a transaction envelope
-    // 2. Sign it using KMS via eth_sendRawTransaction
-    // 3. Submit via RPC
+    // AWS KMS transaction signing requires:
+    // 1. Build the unsigned RLP-encoded transaction (EIP-1559 or legacy)
+    // 2. Hash it with keccak256
+    // 3. Sign the hash via KMS SignCommand (ECDSA_SHA_256)
+    // 4. Reconstruct the signed transaction with the RSV signature
+    // 5. Broadcast via sendRawTransaction
+    //
+    // This is not yet implemented because the low-level transaction
+    // assembly must be done manually (Viem WalletClient can't be used
+    // since the private key never leaves KMS).
 
     this.logger.info(
       `[AWS KMS] Signing tx: to=${tx.to}, chainId=${tx.chainId}`,
     );
 
-    throw new Error('AWS KMS transaction signing not yet implemented');
+    throw new Error(
+      'AWS KMS transaction signing not yet implemented. ' +
+      'Use LocalKeyManager for development, or implement low-level RLP ' +
+      'transaction construction with KMS SignCommand for production.',
+    );
   }
 
   getKeyManagerType(): string {
@@ -243,17 +315,23 @@ export class AWSKMSKeyManager implements KeyManager {
  * Creates a KeyManager based on the configured type.
  *
  * @param type - Key manager type: 'local', 'aws-kms', or 'vault'
- * @param config - Configuration object
+ * @param config - Configuration object (privateKey, rpcEndpoints, kmsKeyId, region)
  * @param logger - Logger instance
  * @returns A KeyManager implementation
  *
  * @example
  * ```typescript
  * // Local development
- * const km = createKeyManager('local', { privateKey: process.env.SOLVER_PRIVATE_KEY }, logger);
+ * const km = createKeyManager('local', {
+ *   privateKey: process.env.SOLVER_PRIVATE_KEY,
+ *   rpcEndpoints: { 1: 'https://eth-mainnet.g.alchemy.com/v2/...' },
+ * }, logger);
  *
  * // AWS KMS production
- * const km = createKeyManager('aws-kms', { kmsKeyId: process.env.AWS_KMS_KEY_ID }, logger);
+ * const km = createKeyManager('aws-kms', {
+ *   kmsKeyId: process.env.AWS_KMS_KEY_ID,
+ *   rpcEndpoints: { 1: 'https://eth-mainnet.g.alchemy.com/v2/...' },
+ * }, logger);
  * ```
  */
 export function createKeyManager(
@@ -263,17 +341,26 @@ export function createKeyManager(
 ): KeyManager {
   switch (type) {
     case 'local':
-      return new LocalKeyManager(config.privateKey, logger);
+      return new LocalKeyManager(
+        config.privateKey,
+        logger,
+        config.rpcEndpoints || {},
+      );
 
     case 'aws-kms':
       return new AWSKMSKeyManager(
         config.kmsKeyId,
         config.region || 'us-east-1',
         logger,
+        config.rpcEndpoints || {},
       );
 
     default:
       logger.warn(`Unknown key manager type "${type}", falling back to local`);
-      return new LocalKeyManager(config.privateKey, logger);
+      return new LocalKeyManager(
+        config.privateKey,
+        logger,
+        config.rpcEndpoints || {},
+      );
   }
 }

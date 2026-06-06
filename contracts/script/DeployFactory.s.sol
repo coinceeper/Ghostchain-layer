@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import { Script } from "forge-std/Script.sol";
+import { console } from "forge-std/console.sol";
 import { EphemeralFactory } from "../src/EphemeralFactory.sol";
 import { EphemeralRouter } from "../src/EphemeralRouter.sol";
 import { ZKVerifier } from "../src/ZKVerifier.sol";
@@ -77,7 +78,10 @@ contract DeployFactory is Script {
         vm.startBroadcast(deployer);
 
         // Step 1: Deploy EphemeralRouter (implementation for minimal proxies)
-        // The factory will call router.setFactory() during its constructor
+        // GCL-SC-04 FIX: The router has NO external factory-setter function.
+        // The factory address is stored per-proxy during the CREATE opcode by
+        // custom init bytecode (CALLER → SSTORE), making it physically atomic
+        // and immune to front-running.
         EphemeralRouter router = new EphemeralRouter();
         console.log("EphemeralRouter deployed at:", address(router));
 
@@ -149,9 +153,9 @@ contract DeployFactory is Script {
 
         // ───── Post-deployment Summary ─────
         console.log("");
-        console.log("═══════════════════════════════════════");
+        console.log("=======================================");
         console.log("  Deployment Summary");
-        console.log("═══════════════════════════════════════");
+        console.log("=======================================");
         console.log("  Chain ID:   ", block.chainid);
         console.log("  Environment:", productionMode ? "PRODUCTION" : "DEVELOPMENT");
         console.log("  Bootstrap:  ", bootstrapMode);
@@ -159,6 +163,6 @@ contract DeployFactory is Script {
         console.log("  Verifier:   ", address(verifier));
         console.log("  Router:     ", address(router));
         console.log("  Registry:   ", address(registry));
-        console.log("═══════════════════════════════════════");
+        console.log("=======================================");
     }
 }

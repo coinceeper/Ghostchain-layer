@@ -56,6 +56,8 @@ export class IntentManager {
     amount: bigint;
     recipientGhostAddress: Address;
     commitment: Hash;
+    ephemeralPublicKey: `0x${string}`;
+    viewTag: number;
     expiry: bigint;
   }): Promise<SwapIntent> {
     const intentId = keccak_256(
@@ -76,6 +78,8 @@ export class IntentManager {
       amount: params.amount,
       recipientGhostAddress: params.recipientGhostAddress,
       commitment: params.commitment,
+      ephemeralPublicKey: params.ephemeralPublicKey,
+      viewTag: params.viewTag,
       fulfilled: false,
       expiry: params.expiry,
     };
@@ -103,6 +107,8 @@ export class IntentManager {
       amount: intent.amount.toString(),
       recipientGhostAddress: intent.recipientGhostAddress,
       commitment: intent.commitment,
+      ephemeralPublicKey: intent.ephemeralPublicKey,
+      viewTag: intent.viewTag,
       expiry: intent.expiry.toString(),
     };
 
@@ -138,26 +144,30 @@ export class IntentManager {
   async fulfillIntent(
     intent: SwapIntent,
     proof: Hash,
+    contractHash: `0x${string}`,
+    ephemeralPublicKey: `0x${string}`,
   ): Promise<Hash> {
-    const { request } = await this.client
-      .getPublicClient(intent.sourceChain)
-      .simulateContract({
-        address: this.client.config.chains.get(intent.sourceChain)!.factoryAddress,
-        abi: [
-          {
-            name: 'fulfillSwap',
-            type: 'function',
-            inputs: [
-              { name: 'swapId', type: 'bytes32' },
-              { name: 'proof', type: 'bytes' },
-              { name: 'recipient', type: 'address' },
-            ],
-            outputs: [],
-          },
-        ],
-        functionName: 'fulfillSwap',
-        args: [intent.id, proof, intent.recipientGhostAddress],
-        account: this.client.getWalletClient()!.account!.address,
+      const { request } = await this.client
+        .getPublicClient(intent.sourceChain)
+        .simulateContract({
+          address: this.client.config.chains.get(intent.sourceChain)!.factoryAddress,
+          abi: [
+            {
+              name: 'fulfillSwap',
+              type: 'function',
+              inputs: [
+                { name: 'swapId', type: 'bytes32' },
+                { name: 'proof', type: 'bytes' },
+                { name: 'recipient', type: 'address' },
+                { name: 'contractHash', type: 'bytes32' },
+                { name: 'ephemeralPublicKey', type: 'bytes' },
+              ],
+              outputs: [],
+            },
+          ],
+          functionName: 'fulfillSwap',
+          args: [intent.id, proof, intent.recipientGhostAddress, contractHash, ephemeralPublicKey],
+          account: this.client.getWalletClient()!.account!.address,
       });
 
     return await this.client.getWalletClient().writeContract(request);
@@ -289,6 +299,8 @@ export async function performCrossChainTransfer(
     amount: BigInt(params.amount),
     recipientGhostAddress: ghostAddress.address,
     commitment: swapId,
+    ephemeralPublicKey: ghostAddress.ephemeralPublicKey,
+    viewTag: ghostAddress.viewTag,
     expiry: BigInt(Math.floor(Date.now() / 1000) + 3600),
   });
 

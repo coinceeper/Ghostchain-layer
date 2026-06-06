@@ -4,7 +4,9 @@
 // This Circom circuit proves that:
 //   1. The sender knows the private key for a committed identity
 //   2. The recipient's identity commitment is correctly bound
-//   3. The swap contract, token, amount, nonce, and chain ID match
+//   3. The shared secret is correctly derived from the sender's
+//      private key and the ephemeral public key (ECDH binding)
+//   4. The swap contract, token, amount, nonce, and chain ID match
 //
 // Using Poseidon-based commitment scheme (compatible with secp256k1
 // identities used in the SDK). Instead of verifying an ECDSA signature
@@ -15,6 +17,11 @@
 // The SDK generates: senderCommitment = Poseidon(privateKey, randomness)
 // The prover proves knowledge of (privateKey, randomness) without
 // revealing them.
+//
+// sharedSecret is NOT a free private input — it is derived inside
+// the circuit as Poseidon(senderPrivateKey, ephemeralPublicKey).
+// This prevents the prover from injecting an arbitrary value and
+// ensures the ghost address binding is sound.
 //
 // Without revealing:
 //   - The sender's private key
@@ -49,9 +56,6 @@ template GhostTransfer() {
     // Recipient's viewing key commitment component
     signal private input recipientViewingKeyCommitment;
 
-    // Shared secret from ECDH (off-chain, used for ghost address derivation)
-    signal private input sharedSecret;
-
     // ───── Public Inputs ─────
     // Visible to the verifier on-chain
 
@@ -76,6 +80,9 @@ template GhostTransfer() {
     // Chain ID where verification occurs
     signal public input chainId;
 
+    // Ephemeral public key (R = r * G) emitted in the swap event
+    signal public input ephemeralPublicKey;
+
     // ───── Internal Signals ─────
 
     // Computed sender commitment
@@ -83,6 +90,10 @@ template GhostTransfer() {
 
     // Computed recipient commitment
     signal computedRecipientCommitment;
+
+    // Shared secret derived inside the circuit (NOT a free private input)
+    // sharedSecret = Poseidon(senderPrivateKey, ephemeralPublicKey)
+    signal sharedSecret;
 
     // Computed ghost address hash (Poseidon of shared values)
     signal computedGhostAddress;
@@ -109,14 +120,24 @@ template GhostTransfer() {
     // Assert: computed commitment matches public input
     computedRecipientCommitment === recipientCommitment;
 
-    // 3. Compute ghost address binding:
+    // 3. Derive shared secret from sender's private key and ephemeral public key.
+    //    This constraint ELIMINATES GCL-ZK-01: the prover can no longer supply
+    //    an arbitrary sharedSecret — it is deterministically derived inside the
+    //    circuit from values the prover must honestly provide.
+    //    sharedSecret = Poseidon(senderPrivateKey, ephemeralPublicKey)
+    component ssHasher = Poseidon(2);
+    ssHasher.inputs[0] <== senderPrivateKey;
+    ssHasher.inputs[1] <== ephemeralPublicKey;
+    sharedSecret <== ssHasher.out;
+
+    // 4. Compute ghost address binding:
     //    ghostAddress = Poseidon(recipientSpendingKeyCommitment, sharedSecret)
     component ghostHasher = Poseidon(2);
     ghostHasher.inputs[0] <== recipientSpendingKeyCommitment;
     ghostHasher.inputs[1] <== sharedSecret;
     computedGhostAddress <== ghostHasher.out;
 
-    // 4. Bind everything to the swap contract:
+    // 5. Bind everything to the swap contract:
     //    contractHash == Poseidon(ghostAddress, token, amount, nonce, chainId)
     component bindingHasher = Poseidon(5);
     bindingHasher.inputs[0] <== computedGhostAddress;
@@ -133,4 +154,4 @@ template GhostTransfer() {
 // Export the main component with public inputs visible on-chain
 // ────────────────────────────────────────────────────────────
 
-component main { public [senderCommitment, recipientCommitment, contractHash, token, amount, nonce, chainId] } = GhostTransfer();
+component main { public [senderCommitment, recipientCommitment, contractHash, token, amount, nonce, chainId, ephemeralPublicKey] } = GhostTransfer();

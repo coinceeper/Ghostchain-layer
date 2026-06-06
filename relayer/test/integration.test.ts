@@ -168,6 +168,8 @@ describe('GhostChain Integration Tests', () => {
         amount: TEST_AMOUNT,
         nonce: BigInt(1),
         chainId: BigInt(TEST_CHAIN_ID),
+        // GCL-ZK-01: ephemeralPublicKey must match the swap event for shared secret binding
+        ephemeralPublicKey: ghostAddress.ephemeralPublicKey,
       };
 
       const result = await zkProver.generateProof(publicInputs);
@@ -187,6 +189,7 @@ describe('GhostChain Integration Tests', () => {
         amount: TEST_AMOUNT,
         nonce: BigInt(42),
         chainId: BigInt(TEST_CHAIN_ID),
+        ephemeralPublicKey: '0x000000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`,
       };
 
       const result1 = await zkProver.generateProof(publicInputs);
@@ -211,6 +214,8 @@ describe('GhostChain Integration Tests', () => {
         amount: TEST_AMOUNT,
         recipientGhostAddress: '0x0000000000000000000000000000000000000000' as Address,
         commitment: '0x0000000000000000000000000000000000000000000000000000000000000000',
+        ephemeralPublicKey: '0x000000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`,
+        viewTag: 0,
         fulfilled: false,
         expiry: BigInt(0),
       });
@@ -228,6 +233,8 @@ describe('GhostChain Integration Tests', () => {
         amount: TEST_AMOUNT,
         recipientGhostAddress: '0x0000000000000000000000000000000000000000' as Address,
         commitment: '0x0000000000000000000000000000000000000000000000000000000000000000',
+        ephemeralPublicKey: '0x000000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`,
+        viewTag: 0,
         fulfilled: false,
         expiry: BigInt(0),
       });

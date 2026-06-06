@@ -94,6 +94,7 @@ function loadConfig(): SolverConfig {
     minFeeBps: Number(process.env.MIN_FEE_BPS) || 30,
     maxFillAmountUsd: Number(process.env.MAX_FILL_USD) || 10000,
     apiPort: Number(process.env.API_PORT) || 3000,
+    apiKey: process.env.API_KEY || '',
     useFullProving: process.env.USE_FULL_PROVING === 'true',
     zkeyPath: process.env.ZKEY_PATH,
   };
@@ -136,6 +137,7 @@ async function main() {
       privateKey: solverPrivateKey as `0x${string}`,
       kmsKeyId: process.env.AWS_KMS_KEY_ID,
       region: process.env.AWS_REGION || 'us-east-1',
+      rpcEndpoints: config.rpcEndpoints,
     }, logger);
     logger.info(`Key manager initialized: ${keyManager.getKeyManagerType()}`);
   } catch (error) {

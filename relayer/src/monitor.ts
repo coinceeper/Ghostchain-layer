@@ -10,9 +10,13 @@ import type { Logger } from 'pino';
 import type { SwapIntent } from 'ghostchain-sdk';
 
 // ───── Event Signature ─────
+//
+// Matches the contract's EphemeralSwapCreated event which now includes
+// recipientGhostAddress so the solver can detect the correct on-chain
+// recipient without requiring off-chain API data (fixes GCL-RL-03).
 
 const EPHEMERAL_SWAP_CREATED_EVENT = parseAbiItem(
-  'event EphemeralSwapCreated(bytes32 indexed swapId, address indexed creator, address indexed token, uint256 amount, uint256 sourceChain, uint256 destinationChain, bytes32 commitment)',
+  'event EphemeralSwapCreated(bytes32 indexed swapId, address indexed creator, address indexed token, uint256 amount, uint256 sourceChain, uint256 destinationChain, bytes32 commitment, address indexed recipientGhostAddress, bytes ephemeralPublicKey, uint8 viewTag)',
 );
 
 // ───── Types ─────
@@ -147,16 +151,31 @@ export class IntentMonitor {
     // Process each event
     for (const log of logs) {
       try {
+        // recipientGhostAddress was added to the EphemeralSwapCreated event
+        // (fixes GCL-RL-03 — previously always zero). The contract stores and
+        // emits it at creation time so the monitor can construct a complete
+        // SwapIntent purely from on-chain data.
+        const recipientGhostAddress = log.args.recipientGhostAddress as Address | undefined;
+        if (!recipientGhostAddress || recipientGhostAddress === '0x0000000000000000000000000000000000000000') {
+          this.logger.warn(`Intent ${log.args.swapId} has no recipientGhostAddress, skipping`);
+          continue;
+        }
+
+        const ephemeralPublicKey = log.args.ephemeralPublicKey as `0x${string}` | undefined;
+        const viewTag = log.args.viewTag as number | undefined;
+
         const intent: SwapIntent = {
           id: log.args.swapId as Hash,
           sourceChain: chainId,
           destinationChain: Number(log.args.destinationChain),
           token: log.args.token as Address,
           amount: log.args.amount as unknown as bigint,
-          recipientGhostAddress: '0x' as Address, // Will be set when solver claims
+          recipientGhostAddress,
           commitment: log.args.commitment as Hash,
+          ephemeralPublicKey: ephemeralPublicKey ?? ('0x' as `0x${string}`),
+          viewTag: viewTag ?? 0,
           fulfilled: false,
-          expiry: BigInt(0), // Will be fetched from contract
+          expiry: BigInt(0), // Will be fetched from contract if needed
         };
 
         // Notify all callbacks

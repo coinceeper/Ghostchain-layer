@@ -86,6 +86,10 @@ export interface SwapIntent {
   recipientGhostAddress: Address;
   /** ZK commitment hash for privacy */
   commitment: `0x${string}`;
+  /** Ephemeral public key (R = r*G) used for stealth address derivation and ZK proof binding */
+  ephemeralPublicKey: `0x${string}`;
+  /** View tag for efficient scanning (first byte of keccak256(sharedSecret)) */
+  viewTag: number;
   /** Whether this intent has been fulfilled */
   fulfilled: boolean;
   /** Timestamp when the intent expires */
@@ -118,6 +122,10 @@ export interface GhostTransferProof {
     amount: bigint;
     nonce: bigint;
     chainId: bigint;
+    /** Ephemeral public key (R = r*G) emitted in the swap event.
+     *  The circuit derives sharedSecret = Poseidon(senderPrivateKey, ephemeralPublicKey)
+     *  internally, preventing the prover from injecting arbitrary values (GCL-ZK-01 fix). */
+    ephemeralPublicKey: `0x${string}`;
   };
 }
 

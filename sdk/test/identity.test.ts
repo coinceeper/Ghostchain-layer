@@ -105,39 +105,29 @@ describe('Ghost Address Layer', () => {
     expect(scanned).toBeNull();
   });
 
-  it('should compute a deterministic commitment hash', () => {
-    const ghostAddr = '0x1234567890abcdef1234567890abcdef12345678';
-    const token = '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9';
-    const amount = BigInt(1000_000_000); // 1000 USDT (6 decimals)
+  it('should compute a deterministic sender commitment using Poseidon', () => {
+    const senderPrivKey = '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef' as `0x${string}`;
+    const randomness = '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef' as `0x${string}`;
 
     const commitment1 = computeGhostTransferCommitment(
-      ghostAddr,
-      token,
-      amount,
-      BigInt(1),
-      BigInt(42161),
+      senderPrivKey,
+      randomness,
     );
 
     const commitment2 = computeGhostTransferCommitment(
-      ghostAddr,
-      token,
-      amount,
-      BigInt(1),
-      BigInt(42161),
+      senderPrivKey,
+      randomness,
     );
 
-    // Same inputs should produce same commitment
+    // Same inputs should produce same commitment (deterministic)
     expect(commitment1).toBe(commitment2);
 
-    // Different nonce should produce different commitment
+    // Different randomness should produce different commitment
+    const differentRandomness = '0x0000000000000000000000000000000000000000000000000000000000000001' as `0x${string}`;
     const commitment3 = computeGhostTransferCommitment(
-      ghostAddr,
-      token,
-      amount,
-      BigInt(2),
-      BigInt(42161),
+      senderPrivKey,
+      differentRandomness,
     );
-
     expect(commitment1).not.toBe(commitment3);
   });
 });

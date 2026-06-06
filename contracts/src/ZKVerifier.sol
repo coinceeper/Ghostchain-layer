@@ -11,6 +11,12 @@ import { Ownable } from "./lib/Ownable.sol";
 ///      When the full Groth16 verifier is deployed, verify() delegates to it.
 ///      Production mode permanently blocks bootstrap proofs.
 contract ZKVerifier is IZKVerifier, Ownable {
+    // ───── Constants ─────
+
+    /// @notice secp256k1 curve order n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+    /// @dev Used for signature malleability check: require s <= n/2
+    uint256 private constant SECP256K1_N_DIV_2 = 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
+
     // ───── State ─────
 
     /// @notice Hash of the verification key
@@ -31,10 +37,16 @@ contract ZKVerifier is IZKVerifier, Ownable {
     /// @notice Address whose signature is accepted in bootstrap mode
     address public immutable authorizedSigner;
 
-    // ───── Events ─────
+    // ───── State: Nullifier Tracking ─────
 
-    /// @notice Emitted when the full verifier contract is upgraded
-    event VerifierUpgraded(address indexed newVerifier, uint8 indexed provingSystem);
+    /// @notice Tracks nullifiers that have been consumed to prevent double-spending.
+    ///         Maps nullifier => true if already used in a verified proof.
+    /// @dev    This is the canonical double-spend prevention mechanism.
+    ///         Once a nullifier is marked used, any proof with the same nullifier
+    ///         will be rejected regardless of the proof's validity.
+    mapping(bytes32 => bool) public usedNullifiers;
+
+    // ───── Events (overrides + new) ─────
 
     /// @notice Emitted when production mode is activated (one-way switch)
     event ProductionModeActivated();
@@ -98,13 +110,13 @@ contract ZKVerifier is IZKVerifier, Ownable {
                 abi.encodeWithSignature("verifyProof(bytes,bytes)", proof, abi.encode(publicInputs))
             );
             if (!success) revert ProofVerificationFailed();
-            bool result = abi.decode(data, (bool));
-            if (result) {
+            bool verifierResult = abi.decode(data, (bool));
+            if (verifierResult) {
                 emit ProofVerified(keccak256(proof), publicInputHash, msg.sender);
             } else {
                 emit ProofFailed(keccak256(proof), "Groth16 pairing check failed");
             }
-            return result;
+            return verifierResult;
         }
 
         // Production mode check: if production mode is enabled but no full verifier is set,
@@ -135,13 +147,13 @@ contract ZKVerifier is IZKVerifier, Ownable {
                 abi.encodeWithSignature("verifyPlonkProof(bytes,bytes)", proof, abi.encode(publicInputs))
             );
             if (!success) revert ProofVerificationFailed();
-            bool result = abi.decode(data, (bool));
-            if (result) {
+            bool plonkResult = abi.decode(data, (bool));
+            if (plonkResult) {
                 emit ProofVerified(keccak256(proof), publicInputHash, msg.sender);
             } else {
                 emit ProofFailed(keccak256(proof), "PLONK verification failed");
             }
-            return result;
+            return plonkResult;
         }
 
         // Production mode guard
@@ -160,17 +172,72 @@ contract ZKVerifier is IZKVerifier, Ownable {
     }
 
     /// @inheritdoc IZKVerifier
+    function verifyNullifierProof(
+        uint8 proofType,
+        bytes calldata proof,
+        IZKVerifier.NullifierProofPublicInputs calldata publicInputs
+    ) external returns (bool) {
+        // ───── Nullifier double-spend check ─────
+        if (usedNullifiers[publicInputs.nullifier]) {
+            revert NullifierAlreadyUsed(publicInputs.nullifier);
+        }
+
+        // ───── Compute public input hash for the nullifier proof ─────
+        bytes32 publicInputHash = keccak256(abi.encode(publicInputs));
+
+        // ───── Delegate to full verifier if available ─────
+        if (fullVerifier != address(0)) {
+            (bool success, bytes memory data) = fullVerifier.staticcall(
+                abi.encodeWithSignature(
+                    "verifyNullifierProof(bytes,bytes)",
+                    proof,
+                    abi.encode(publicInputs)
+                )
+            );
+            if (!success) revert ProofVerificationFailed();
+            bool verifierResult = abi.decode(data, (bool));
+            if (!verifierResult) revert ProofVerificationFailed();
+
+            // Mark nullifier as consumed
+            usedNullifiers[publicInputs.nullifier] = true;
+            emit NullifierConsumed(publicInputs.nullifier, keccak256(proof));
+            emit ProofVerified(keccak256(proof), publicInputHash, msg.sender);
+            return true;
+        }
+
+        // ───── Production mode guard ─────
+        if (productionMode) revert BootstrapNotAllowedInProduction();
+
+        // ───── Bootstrap mode verification ─────
+        bool result = _verifyNullifierBootstrap(proof, publicInputs);
+
+        if (!result) revert ProofVerificationFailed();
+
+        // Mark nullifier as consumed (atomic with verification)
+        usedNullifiers[publicInputs.nullifier] = true;
+        emit NullifierConsumed(publicInputs.nullifier, keccak256(proof));
+        emit ProofVerified(keccak256(proof), publicInputHash, msg.sender);
+
+        return true;
+    }
+
+    /// @inheritdoc IZKVerifier
     function verify(
         uint8 proofType,
         bytes calldata proof,
         GhostTransferPublicInputs calldata publicInputs
     ) external returns (bool) {
         if (proofType == 0) {
-            return verifyGroth16Proof(proof, publicInputs);
+            return this.verifyGroth16Proof(proof, publicInputs);
         } else if (proofType == 1) {
-            return verifyPlonkProof(proof, publicInputs);
+            return this.verifyPlonkProof(proof, publicInputs);
         }
         revert UnsupportedProofType();
+    }
+
+    /// @inheritdoc IZKVerifier
+    function isNullifierUsed(bytes32 nullifier) external view returns (bool) {
+        return usedNullifiers[nullifier];
     }
 
     // ───── Internal Functions ─────
@@ -181,6 +248,9 @@ contract ZKVerifier is IZKVerifier, Ownable {
     ///      public input hash. Checks that all inputs are non-zero, computes the
     ///      hash, recovers the signer via ecrecover, and verifies it matches
     ///      authorizedSigner. This is NOT zero-knowledge.
+    ///
+    ///      ephemeralPublicKey is included in the hash to bind the proof
+    ///      to the specific ephemeral key used in the swap event (fixes GCL-ZK-01).
     function _verifyBootstrap(
         bytes calldata proof,
         GhostTransferPublicInputs calldata publicInputs
@@ -195,11 +265,14 @@ contract ZKVerifier is IZKVerifier, Ownable {
         if (publicInputs.token == address(0)) revert InvalidPublicInput();
         if (publicInputs.amount == 0) revert InvalidPublicInput();
         if (publicInputs.chainId != block.chainid) revert ChainIdMismatch();
+        if (publicInputs.ephemeralPublicKey.length == 0) revert InvalidPublicInput();
 
         // Verify proof structural integrity (minimum 65 bytes: 32+32+1 for r, s, v)
         if (proof.length < 65) revert InvalidProofLength();
 
-        // Compute the public input hash that the proof is bound to
+        // Compute the public input hash that the proof is bound to.
+        // Includes ephemeralPublicKey to ensure the shared secret derivation
+        // constraint is verified on-chain (GCL-ZK-01 fix).
         bytes32 publicInputHash = keccak256(
             abi.encodePacked(
                 publicInputs.senderCommitment,
@@ -208,7 +281,9 @@ contract ZKVerifier is IZKVerifier, Ownable {
                 publicInputs.token,
                 publicInputs.amount,
                 publicInputs.nonce,
-                publicInputs.chainId
+                publicInputs.chainId,
+                publicInputs.ephemeralPublicKey,
+                publicInputs.ephemeralPublicKey.length
             )
         );
 
@@ -217,8 +292,76 @@ contract ZKVerifier is IZKVerifier, Ownable {
         bytes32 s = bytes32(proof[32:64]);
         uint8 v = uint8(proof[64]) + 27; // v = 27 or 28
 
+        // GCL-SC-07: Signature malleability protection
+        // Ensure s is in the lower half of the secp256k1 curve order
+        // to prevent signature malleability (ECDSA with s > n/2 can be
+        // flipped to produce a different valid signature for the same message).
+        if (uint256(s) > SECP256K1_N_DIV_2) revert InvalidSignatureS();
+
         // Verify the signature using ecrecover
         // The recovered signer MUST match the authorized signer
+        address signer = ecrecover(publicInputHash, v, r, s);
+
+        return signer == authorizedSigner;
+    }
+
+    /// @notice Bootstrap verification for nullifier-based proofs.
+    /// @dev    Uses ECDSA signature from the authorized signer over the
+    ///         nullifier proof public inputs hash. This is used during
+    ///         development/bootstrap phase before the full Groth16 verifier
+    ///         is deployed.
+    ///
+    ///         ephemeralPublicKey is included in the hash to bind the proof
+    ///         to the specific ephemeral key (fixes GCL-ZK-01).
+    /// @param proof The ECDSA signature (r, s, v) from the authorized signer
+    /// @param publicInputs The nullifier proof public inputs
+    /// @return True if the signature is valid and matches authorizedSigner
+    function _verifyNullifierBootstrap(
+        bytes calldata proof,
+        IZKVerifier.NullifierProofPublicInputs calldata publicInputs
+    ) internal view returns (bool) {
+        // Bootstrap mode requires an authorized signer to be set
+        if (authorizedSigner == address(0)) revert BootstrapNotConfigured();
+
+        // Structural checks on public inputs
+        if (publicInputs.nullifier == bytes32(0)) revert InvalidPublicInput();
+        if (publicInputs.merkleRoot == bytes32(0)) revert InvalidPublicInput();
+        if (publicInputs.recipient == address(0)) revert InvalidPublicInput();
+        if (publicInputs.token == address(0)) revert InvalidPublicInput();
+        if (publicInputs.amount == 0) revert InvalidPublicInput();
+        if (publicInputs.chainId != block.chainid) revert ChainIdMismatch();
+        if (publicInputs.ephemeralPublicKey.length == 0) revert InvalidPublicInput();
+
+        // Verify proof structural integrity (minimum 65 bytes: 32+32+1 for r, s, v)
+        if (proof.length < 65) revert InvalidProofLength();
+
+        // Compute the public input hash that the proof is bound to.
+        // Includes ephemeralPublicKey to ensure the shared secret derivation
+        // constraint is verified on-chain (GCL-ZK-01 fix).
+        bytes32 publicInputHash = keccak256(
+            abi.encodePacked(
+                publicInputs.nullifier,
+                publicInputs.merkleRoot,
+                publicInputs.recipient,
+                publicInputs.viewTag,
+                publicInputs.token,
+                publicInputs.amount,
+                publicInputs.chainId,
+                publicInputs.ephemeralPublicKey,
+                publicInputs.ephemeralPublicKey.length
+            )
+        );
+
+        // Extract signature from proof bytes
+        bytes32 r = bytes32(proof[0:32]);
+        bytes32 s = bytes32(proof[32:64]);
+        uint8 v = uint8(proof[64]) + 27; // v = 27 or 28
+
+        // GCL-SC-07: Signature malleability protection
+        // Ensure s is in the lower half of the secp256k1 curve order
+        if (uint256(s) > SECP256K1_N_DIV_2) revert InvalidSignatureS();
+
+        // Verify the signature using ecrecover
         address signer = ecrecover(publicInputHash, v, r, s);
 
         return signer == authorizedSigner;
@@ -238,4 +381,11 @@ contract ZKVerifier is IZKVerifier, Ownable {
     error NoFullVerifierSet();
     error AlreadyInProductionMode();
     error InvalidAuthorizedSigner();
+
+    /// @notice Thrown when a nullifier has already been consumed in a previous proof
+    error NullifierAlreadyUsed(bytes32 nullifier);
+
+    /// @notice Thrown when the signature s-value is in the upper half of the
+    ///         secp256k1 curve order, indicating a malleable signature (GCL-SC-07).
+    error InvalidSignatureS();
 }

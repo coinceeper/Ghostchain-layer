@@ -7,8 +7,8 @@
  * Core cryptography (ECDH on secp256k1):
  *   1. Sender generates ephemeral keypair (r, R)
  *   2. Sender computes ECDH shared secret: S = r * viewingPubKey
- *   3. Compute tweak: t = keccak_256(S)
- *   4. Recipient's stealth address = keccak_256(spendingPubKey + t)[:20]
+ *   3. Compute tweak scalar: t = keccak_256(S), then T = t * G
+ *   4. Recipient's stealth address = keccak_256(spendingPubKey + T)[:20]
  *
  * The recipient scans for incoming transfers using their viewing key:
  *   - View Tag: first byte of keccak_256(S), used for fast filtering
@@ -16,13 +16,18 @@
  *
  * This ensures that only the recipient (with their spending key) can spend
  * funds sent to a stealth address, maintaining privacy.
+ *
+ * GCL-SDK-01 FIX: The tweak is correctly computed as a scalar multiplication
+ * (t * G) instead of incorrectly interpreting the 32-byte hash output as a
+ * curve point encoding (which requires 33+ bytes).
  */
 
-import { bytesToHex, hexToBytes, concatBytes } from '@noble/hashes/utils';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { type Address, getAddress } from 'viem';
 import type { GhostAddress, GhostKeyPair } from './types.js';
+import { computeSenderCommitment } from './poseidon.js';
 
 // ───── Types ─────
 
@@ -31,6 +36,15 @@ export interface StealthKeys {
   spendingPublicKey: Uint8Array;
   viewingPrivateKey: Uint8Array;
   viewingPublicKey: Uint8Array;
+}
+
+/** Result of computing the circuit-level shared secret binding. */
+export interface CircuitSharedSecretResult {
+  /** The shared secret value for the circuit witness, computed as
+   *  Poseidon(senderPrivateKey, ephemeralPublicKey).
+   *  This mirrors the circuit constraint: sharedSecret = Poseidon(senderPrivateKey, ephemeralPublicKey)
+   *  (FIXES GCL-ZK-04: Previously used SHA256 which never matched Poseidon). */
+  sharedSecret: `0x${string}`;
 }
 
 export interface StealthAddressResult {
@@ -47,8 +61,11 @@ export interface StealthAddressResult {
  * Per ERC-5564:
  *   1. Generate ephemeral keypair (r, R = r * G)
  *   2. Compute shared secret: S = keccak_256(r * viewingPubKey)
- *   3. Compute tweak: t = keccak_256(S) as a curve point
- *   4. Stealth address = keccak_256(spendingPubKey + t)[:20]
+ *   3. Compute tweak scalar: t = keccak_256(S), then T = t * G
+ *   4. Stealth address = keccak_256(spendingPubKey + T)[:20]
+ *
+ * GCL-SDK-01 FIX: The tweak is derived as t*G (scalar multiplication) rather
+ * than interpreting the raw 32-byte keccak_256 output as a curve point encoding.
  *
  * @param recipientViewingKey - Recipient's viewing public key (for scanning)
  * @param recipientSpendingKey - Recipient's spending public key (for spending)
@@ -69,12 +86,15 @@ export function generateStealthAddress(
     true, // compact form
   );
 
-  // 3. Compute tweak = keccak_256(sharedSecret), interpret as scalar on curve
-  const tweak = keccak_256(sharedSecret);
-  const tweakedPublicKey = secp256k1.ProjectivePoint
-    .fromHex(recipientSpendingKey)
-    .add(secp256k1.ProjectivePoint.fromHex(tweak))
-    .toRawBytes(false);
+  // 3. Compute tweak = keccak_256(sharedSecret) as a scalar, then T = tweak * G
+  //    GCL-SDK-01 FIX: keccak_256 outputs 32 bytes, which is NOT a valid curve
+  //    point encoding (expects 33+ bytes). Multiply the generator by the scalar
+  //    to produce a valid curve point, then add to the spending public key.
+  const tweakScalar = keccak_256(sharedSecret);
+  const spendingPoint = secp256k1.ProjectivePoint.fromHex(recipientSpendingKey);
+  const tweakPoint = secp256k1.ProjectivePoint.BASE.multiply(tweakScalar);
+  const stealthPoint = spendingPoint.add(tweakPoint);
+  const tweakedPublicKey = stealthPoint.toRawBytes(false);
 
   // 4. Convert to address: keccak_256(pubkey[1:])[-20:]
   const addressBytes = keccak_256(tweakedPublicKey.slice(1)).slice(-20);
@@ -126,6 +146,9 @@ export function generateGhostAddress(
  * The recipient checks each potential ghost address by recomputing
  * the shared secret from their viewing private key and the ephemeral public key.
  *
+ * GCL-SDK-01 FIX: The tweak is correctly computed as t*G (scalar multiplication)
+ * matching the generation side, producing a valid curve point addition.
+ *
  * @param recipientIdentity - The recipient's keypair
  * @param ephemeralPublicKey - The ephemeral public key from the transaction
  * @param viewTag - The view tag to filter (first byte of keccak_256(sharedSecret))
@@ -150,15 +173,15 @@ export function scanGhostAddress(
     return null;
   }
 
-  // Compute tweak = keccak_256(sharedSecret)
-  const tweak = sharedHash;
+  // Compute tweak = keccak_256(sharedSecret) as a scalar, then T = tweak * G
+  // GCL-SDK-01 FIX: keccak_256 outputs 32 bytes, which is NOT a valid curve
+  // point encoding. Multiply the generator by the scalar to get a valid point.
   const spendingKeyBytes = hexToBytes(recipientIdentity.spendingPublicKey.slice(2));
-
-  // Derive the stealth address by tweaking the spending public key
-  const tweakedPublicKey = secp256k1.ProjectivePoint
-    .fromHex(spendingKeyBytes)
-    .add(secp256k1.ProjectivePoint.fromHex(tweak))
-    .toRawBytes(false);
+  const tweakScalar = sharedHash;
+  const spendingPoint = secp256k1.ProjectivePoint.fromHex(spendingKeyBytes);
+  const tweakPoint = secp256k1.ProjectivePoint.BASE.multiply(tweakScalar);
+  const stealthPoint = spendingPoint.add(tweakPoint);
+  const tweakedPublicKey = stealthPoint.toRawBytes(false);
 
   const addressBytes = keccak_256(tweakedPublicKey.slice(1)).slice(-20);
 
@@ -166,32 +189,46 @@ export function scanGhostAddress(
 }
 
 /**
- * Computes the commitment hash for the ghost transfer ZK proof.
- * This binds the ghost address, token, amount, nonce, and chain ID together.
+ * Computes the sender commitment for the ghost transfer ZK proof.
  *
- * @param ghostAddress - The ghost address
- * @param token - The token address
- * @param amount - The transfer amount
- * @param nonce - A unique nonce to prevent replay
- * @param chainId - The chain ID where this proof will be verified
- * @returns The commitment hash
+ * The commitment is Poseidon(senderPrivateKey, senderRandomness) which matches
+ * the circuit constraint in ghostTransfer.circom:
+ *   senderCommitment == Poseidon(senderPrivateKey, senderRandomness)
+ *
+ * This is stored on-chain when creating the swap and used as the senderCommitment
+ * public input during proof verification.
+ *
+ * FIXES GCL-ZK-04: Previously used keccak256 which never matched the circuit's
+ * Poseidon hash. Now uses Poseidon(2) identical to the circuit.
+ *
+ * @param senderPrivateKey - The sender's private key (hex)
+ * @param senderRandomness - Random blinding factor (hex)
+ * @returns The sender commitment as a 0x-prefixed hex string (32 bytes)
  */
 export function computeGhostTransferCommitment(
-  ghostAddress: Address,
-  token: Address,
-  amount: bigint,
-  nonce: bigint,
-  chainId: bigint,
+  senderPrivateKey: `0x${string}`,
+  senderRandomness: `0x${string}`,
 ): `0x${string}` {
-  const hash = keccak_256(
-    concatBytes(
-      hexToBytes(ghostAddress.slice(2)),
-      hexToBytes(token.slice(2)),
-      hexToBytes(amount.toString(16).padStart(64, '0')),
-      hexToBytes(nonce.toString(16).padStart(64, '0')),
-      hexToBytes(chainId.toString(16).padStart(64, '0')),
-    ),
-  );
-
-  return `0x${bytesToHex(hash)}`;
+  // FIX GCL-ZK-04: Use Poseidon(2) matching ghostTransfer.circom constraint:
+  //   senderCommitment == Poseidon(senderPrivateKey, senderRandomness)
+  return computeSenderCommitment(senderPrivateKey, senderRandomness);
 }
+
+/**
+ * Computes the circuit-level shared secret for ZK witness generation.
+ *
+ * FIXES GCL-ZK-04: Previously used SHA-256 which never matched the circuit's
+ * Poseidon. Now delegates to the Poseidon(2) implementation from poseidon.ts.
+ *
+ * @param senderPrivateKey - The sender's spending private key (hex)
+ * @param ephemeralPublicKey - The ephemeral public key (R = r*G) from swap creation
+ * @returns The circuit shared secret as a field-compatible hex string
+ */
+export { computeCircuitSharedSecret } from './poseidon.js';
+export {
+  poseidonHash2,
+  poseidonHash3,
+  poseidonHash5,
+  computeSenderCommitment,
+  computeContractHash,
+} from './poseidon.js';

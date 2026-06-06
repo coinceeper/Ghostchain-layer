@@ -19,6 +19,48 @@ import type { SwapIntent } from 'ghostchain-sdk';
 import { getChainMetadata } from 'ghostchain-sdk';
 import type { SolverConfig } from './executor.js';
 
+// ───── Authentication Middleware ─────
+
+/**
+ * Express middleware that validates the X-API-Key header against the configured API key.
+ * Used to protect sensitive administrative endpoints (e.g., kill-switch).
+ *
+ * GCL-RL-04 FIX: Previously, POST /api/v1/kill-switch had no authentication,
+ * allowing anyone to halt or resume the solver's operations.
+ *
+ * The API key is loaded from the API_KEY environment variable.
+ * If no API key is configured, the middleware logs a warning but still blocks
+ * protected routes — operators must explicitly set API_KEY in production.
+ */
+function requireApiKey(configuredKey: string): express.RequestHandler {
+  return (req, res, next) => {
+    const providedKey = req.headers['x-api-key'] as string | undefined;
+
+    if (!configuredKey) {
+      // No API key configured — this is a security risk in production.
+      // Log a warning and deny access to force explicit configuration.
+      console.warn(
+        '[AUTH] No API_KEY configured. Protected endpoints are blocked until API_KEY is set.',
+      );
+      res.status(503).json({
+        error: 'service_not_configured',
+        message: 'API authentication is not configured. Set API_KEY environment variable.',
+      });
+      return;
+    }
+
+    if (!providedKey || providedKey !== configuredKey) {
+      res.status(401).json({
+        error: 'unauthorized',
+        message: 'Invalid or missing API key. Provide it via the X-API-Key header.',
+      });
+      return;
+    }
+
+    next();
+  };
+}
+
 // ───── API Server ─────
 
 export function startApiServer(
@@ -165,9 +207,9 @@ export function startApiServer(
     }
   });
 
-  // ───── Kill Switch ─────
+  // ───── Kill Switch (GCL-RL-04: Protected by API key authentication) ─────
 
-  app.post('/api/v1/kill-switch', (req, res) => {
+  app.post('/api/v1/kill-switch', requireApiKey(config.apiKey || ''), (req, res) => {
     const { action } = req.body;
 
     if (action === 'engage') {

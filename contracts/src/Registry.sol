@@ -87,6 +87,7 @@ contract Registry is IRegistry, Ownable {
     function addSupportedToken(uint256 chainId, address token) external onlyOwner {
         if (!_chains[chainId].active) revert ChainNotSupported();
         if (token == address(0)) revert InvalidAddress();
+        if (isTokenSupported(chainId, token)) revert TokenAlreadyExists();
 
         ChainConfig storage config = _chains[chainId];
         config.supportedTokens.push(token);
@@ -166,4 +167,5 @@ contract Registry is IRegistry, Ownable {
     error ChainAlreadyExists();
     error ChainNotSupported();
     error TokenNotFound();
+    error TokenAlreadyExists();
 }

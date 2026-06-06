@@ -22,7 +22,7 @@
  * @packageDocumentation
  */
 
-import { type Address, type Hash, encodeFunctionData, parseAbi, keccak256 } from 'viem';
+import { type Address, type Hash, encodeFunctionData, parseAbi, keccak256, encodeAbiParameters, parseAbiParameters } from 'viem';
 import type { Logger } from 'pino';
 
 // ───── Types ─────
@@ -52,6 +52,31 @@ export interface FlashLoanResult {
   /** Transaction hash if executed */
   txHash?: Hash;
 }
+
+/**
+ * A prepared flash loan transaction ready for signing.
+ */
+export interface FlashLoanTransaction {
+  /** The pool/provider contract to call */
+  to: Address;
+  /** The encoded calldata for the flash loan call */
+  data: `0x${string}`;
+  /** The provider being used */
+  provider: FlashLoanProvider;
+  /** The fee for this loan in token units */
+  fee: bigint;
+  /** The amount being borrowed */
+  amount: bigint;
+}
+
+/**
+ * Function signature for executing a transaction on a given chain.
+ * Compatible with KeyManager.signAndSendTransaction.
+ */
+export type ExecuteTxFunction = (
+  chainId: number,
+  tx: { to: Address; data: `0x${string}`; chainId: number },
+) => Promise<Hash>;
 
 // ───── Provider Addresses ─────
 
@@ -144,6 +169,120 @@ export class FlashLoanManager {
       default:
         return BigInt(0);
     }
+  }
+
+  /**
+   * Prepares a flash loan transaction ready for signing and sending.
+   * This selects the best available provider and constructs the full calldata.
+   *
+   * @param request - The flash loan request parameters
+   * @param receiver - The contract address that will receive the loan and execute the callback
+   * @returns A prepared transaction or null if no provider is available
+   */
+  prepareFlashLoan(
+    request: FlashLoanRequest,
+    receiver: Address,
+  ): FlashLoanTransaction | null {
+    const provider = this.getBestProvider(request.chainId, request.preferredProvider);
+    if (provider === 'none') {
+      this.logger.warn(`No flash loan provider available on chain ${request.chainId}`);
+      return null;
+    }
+
+    const poolAddress = this.supportedPools.get(`${request.chainId}:${provider}`);
+    if (!poolAddress) {
+      this.logger.error(`Pool address not found for ${provider} on chain ${request.chainId}`);
+      return null;
+    }
+
+    const data = this.encodeAaveFlashLoan(request.token, request.amount, receiver);
+    const fee = this.estimateFee(provider);
+
+    this.logger.debug(
+      `Prepared ${provider} flash loan: ${request.amount.toString()} ${request.token} on chain ${request.chainId} (fee: ${fee} bps)`,
+    );
+
+    return {
+      to: poolAddress,
+      data,
+      provider,
+      fee: (request.amount * fee) / BigInt(10000),
+      amount: request.amount,
+    };
+  }
+
+  /**
+   * Executes a flash loan by preparing the transaction and sending it via the
+   * provided executeTx callback.
+   *
+   * @param request - The flash loan request parameters
+   * @param receiver - The contract address that will receive the loan and execute the callback
+   * @param executeTx - Function to sign and send the transaction on-chain
+   * @returns The result of the flash loan execution
+   */
+  async executeFlashLoan(
+    request: FlashLoanRequest,
+    receiver: Address,
+    executeTx: ExecuteTxFunction,
+  ): Promise<FlashLoanResult> {
+    const prepared = this.prepareFlashLoan(request, receiver);
+    if (!prepared) {
+      return {
+        success: false,
+        provider: 'none',
+        amount: request.amount,
+        fee: BigInt(0),
+      };
+    }
+
+    try {
+      this.logger.info(
+        `Executing ${prepared.provider} flash loan: ${request.amount.toString()} on chain ${request.chainId}`,
+      );
+      const txHash = await executeTx(request.chainId, {
+        to: prepared.to,
+        data: prepared.data,
+        chainId: request.chainId,
+      });
+      this.logger.info(`Flash loan executed: tx=${txHash}`);
+      return {
+        success: true,
+        provider: prepared.provider,
+        amount: request.amount,
+        fee: prepared.fee,
+        txHash,
+      };
+    } catch (error) {
+      this.logger.error(`Flash loan execution failed:`, error);
+      return {
+        success: false,
+        provider: prepared.provider,
+        amount: request.amount,
+        fee: prepared.fee,
+      };
+    }
+  }
+
+  /**
+   * Encodes the callback data for an Aave V3 executeOperation call.
+   * This is needed on the flash loan receiver contract to pass premium params.
+   *
+   * @param token - The token being borrowed
+   * @param amount - The amount borrowed
+   * @param premium - The flash loan premium (fee)
+   * @param initiator - The address that initiated the flash loan
+   * @returns The encoded callback data
+   */
+  encodeExecuteOperation(
+    token: Address,
+    amount: bigint,
+    premium: bigint,
+    initiator: Address,
+  ): `0x${string}` {
+    return encodeAbiParameters(
+      parseAbiParameters('address token, uint256 amount, uint256 premium, address initiator'),
+      [token, amount, premium, initiator],
+    );
   }
 
   /**
