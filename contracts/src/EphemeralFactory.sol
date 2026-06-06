@@ -24,7 +24,8 @@ contract EphemeralFactory is IEphemeralFactory {
     /// @notice Address of the ZK verifier contract
     address public immutable override verifier;
 
-    /// @notice Address of the EphemeralRouter implementation for minimal proxies
+    /// @notice Address of the EphemeralRouter implementation for minimal proxies.
+    ///         The factory address is passed to the router for access control.
     address public immutable implementation;
 
     /// @notice Maximum duration a swap can remain open before expiry
@@ -64,6 +65,9 @@ contract EphemeralFactory is IEphemeralFactory {
         if (_implementation == address(0)) revert ZeroAddressNotAllowed();
         verifier = _verifier;
         implementation = _implementation;
+
+        // Register this factory as the authorized caller of the router's execute()
+        EphemeralRouter(_implementation).setFactory(address(this));
     }
 
     // ───── External Write Functions ─────

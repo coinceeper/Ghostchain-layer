@@ -24,14 +24,16 @@ contract EphemeralFactoryTest is Test {
 
     function setUp() public {
         // Deploy ZKVerifier with bootstrap mode
+        // Owner = address(this), AuthorizedSigner = address(this) for tests
         uint256[10] memory vkComponents;
-        verifier = new ZKVerifier(keccak256(abi.encode(vkComponents)), 0, true);
+        verifier = new ZKVerifier(keccak256(abi.encode(vkComponents)), 0, true, address(this), address(this));
 
         // Deploy EphemeralRouter (implementation for minimal proxies)
-        // The router is stateless and has no constructor params
+        // The factory address is set by EphemeralFactory constructor via setFactory()
         router = new EphemeralRouter();
 
-        // Deploy EphemeralFactory with router implementation
+        // Deploy EphemeralFactory with router implementation.
+        // The constructor calls router.setFactory(address(this)) to authorize itself.
         factory = new EphemeralFactory(address(verifier), address(router));
 
         // Deploy mock USDT token
@@ -287,7 +289,7 @@ contract EphemeralFactoryTest is Test {
 
     function test_ProductionModeGuard_RevertsBootstrap() public {
         // Deploy a verifier in bootstrap mode
-        ZKVerifier prodVerifier = new ZKVerifier(keccak256("test"), 0, true);
+        ZKVerifier prodVerifier = new ZKVerifier(keccak256("test"), 0, true, address(this), address(this));
 
         // Set a dummy full verifier and activate production mode
         address dummyVerifier = address(0xdead);
@@ -315,7 +317,7 @@ contract EphemeralFactoryTest is Test {
 
     function test_ProductionMode_ActivateBeforeUpgrade_Reverts() public {
         // Deploy verifier WITHOUT a full verifier
-        ZKVerifier prodVerifier = new ZKVerifier(keccak256("test"), 0, true);
+        ZKVerifier prodVerifier = new ZKVerifier(keccak256("test"), 0, true, address(this), address(this));
 
         // Attempting to activate production mode without full verifier should revert
         vm.expectRevert(ZKVerifier.NoFullVerifierSet.selector);
@@ -323,7 +325,7 @@ contract EphemeralFactoryTest is Test {
     }
 
     function test_ProductionMode_OneWaySwitch() public {
-        ZKVerifier prodVerifier = new ZKVerifier(keccak256("test"), 0, true);
+        ZKVerifier prodVerifier = new ZKVerifier(keccak256("test"), 0, true, address(this), address(this));
 
         address dummyVerifier = address(0xdead);
         vm.prank(address(this));
@@ -339,7 +341,7 @@ contract EphemeralFactoryTest is Test {
     }
 
     function test_UpgradeVerifier_TwiceReverts() public {
-        ZKVerifier prodVerifier = new ZKVerifier(keccak256("test"), 0, true);
+        ZKVerifier prodVerifier = new ZKVerifier(keccak256("test"), 0, true, address(this), address(this));
 
         vm.prank(address(this));
         prodVerifier.upgradeVerifier(address(0xdead));
@@ -350,7 +352,7 @@ contract EphemeralFactoryTest is Test {
     }
 
     function test_ProductionMode_ImmutableAfterActivation() public {
-        ZKVerifier prodVerifier = new ZKVerifier(keccak256("test"), 0, true);
+        ZKVerifier prodVerifier = new ZKVerifier(keccak256("test"), 0, true, address(this), address(this));
 
         address dummyVerifier = address(0xdead);
         vm.prank(address(this));

@@ -88,7 +88,8 @@ contract DeployFactory is Script {
 
         vm.startBroadcast(deployer);
 
-        // Step 1: Deploy EphemeralRouter (stateless implementation for minimal proxies)
+        // Step 1: Deploy EphemeralRouter (implementation for minimal proxies)
+        // The factory will call router.setFactory() during its constructor
         EphemeralRouter router = new EphemeralRouter();
         console.log("EphemeralRouter deployed at:", address(router));
 
@@ -102,14 +103,22 @@ contract DeployFactory is Script {
             // Compute bootstrap verification key hash
             bytes32 vkHash = keccak256(abi.encodePacked("ghostchain-bootstrap-v1"));
 
-            // Deploy new ZKVerifier
+            // In bootstrap mode, the authorized signer is the deployer (solver key).
+            // In production mode, the authorized signer is unused (bootstrap is blocked).
+            address authorizedSigner = deployer;
+
+            // Deploy new ZKVerifier with owner and authorized signer
             verifier = new ZKVerifier(
-                vkHash,          // vkHash
-                0,                // provingSystem (0 = Groth16)
-                bootstrapMode     // bootstrapMode
+                vkHash,              // vkHash
+                0,                   // provingSystem (0 = Groth16)
+                bootstrapMode,       // bootstrapMode
+                registryOwner,       // owner (multisig in production)
+                authorizedSigner     // authorizedSigner (solver for bootstrap)
             );
             console.log("ZKVerifier deployed at:", address(verifier));
             console.log("  Bootstrap mode:", bootstrapMode);
+            console.log("  Owner:", registryOwner);
+            console.log("  Authorized signer:", authorizedSigner);
 
             // If production mode and we deployed a new verifier,
             // we need the full verifier to be set before activation.

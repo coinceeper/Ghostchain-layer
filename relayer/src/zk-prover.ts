@@ -48,6 +48,12 @@ export interface ZkProverConfig {
   zkeyPath?: string;
   /** Whether to use full proving (requires snarkjs) */
   useFullProving?: boolean;
+  /**
+   * When true, Groth16 proof generation failure THROWS an error instead of
+   * silently falling back to bootstrap mode. Recommended for production to
+   * ensure only real ZK proofs are generated.
+   */
+  strictProving?: boolean;
 }
 
 // ───── Prover Service ─────
@@ -145,6 +151,9 @@ export class ZkProver {
       try {
         this.snarkjs = await import('snarkjs');
       } catch {
+        if (this.config.strictProving) {
+          throw new Error('snarkjs not available and strictProving is enabled');
+        }
         this.logger.warn('snarkjs not available, falling back to bootstrap proof');
         return this.generateBootstrapProof(_publicInputs);
       }
@@ -163,8 +172,6 @@ export class ZkProver {
       };
 
       // Generate the proof
-      // - witness is calculated from circuit.wasm
-      // - proof is generated using the .zkey file
       const { proof, publicSignals } = await this.snarkjs.groth16.fullProve(
         circuitInputs,
         './zk/build/ghostTransfer.wasm',
@@ -186,8 +193,16 @@ export class ZkProver {
       };
     } catch (error) {
       this.logger.error('Groth16 proof generation failed:', error);
-      // Fall back to bootstrap proof
-      this.logger.warn('Falling back to bootstrap proof mode');
+
+      // In strict mode, throw instead of silently degrading security
+      if (this.config.strictProving) {
+        throw new Error(
+          `Groth16 proof generation failed and strictProving is enabled: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+
+      // Fall back to bootstrap proof (allowed only when strictProving is off)
+      this.logger.warn('Falling back to bootstrap proof mode (strictProving is disabled)');
       return this.generateBootstrapProof(_publicInputs);
     }
   }

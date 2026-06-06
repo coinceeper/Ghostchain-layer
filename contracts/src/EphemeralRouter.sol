@@ -9,21 +9,44 @@ import { IERC20 } from "./interfaces/IERC20.sol";
 ///         logic. This reduces deployment cost to ~100k gas per proxy instead of deploying
 ///         a full contract each time.
 ///
-/// @dev This contract MUST NOT be initialized with any state. All state is stored in the
-///      factory's escrow mappings. The router only handles the atomic token transfer logic.
+/// @dev State is stored in the factory's escrow mappings. The router only handles the atomic
+///      token transfer logic. The `factory` is set once by the EphemeralFactory constructor.
 ///
-///      Security note: The `execute` function has no access control because it is only called
-///      via delegatecall through ERC-1167 proxies created by the factory. The factory is the
-///      only entity that creates proxies, and the only entity that calls them for fulfillment.
-///      Calling the router directly has no effect since it holds no token balance.
+///      Security: The `execute` function checks that `msg.sender == factory`. When the factory
+///      calls a proxy (via `fulfillSwap` or `refundSwap`), `msg.sender` is the factory address.
+///      This prevents anyone from calling `execute()` directly on a proxy and draining its tokens
+///      without passing ZK proof verification in the factory.
 ///
 ///      The call flow is:
-///      1. Factory creates a minimal proxy (ERC-1167) pointing to this router
+///      1. Factory constructor deploys or receives router address, sets itself as authorized
 ///      2. Sender funds the proxy with tokens
-///      3. Solver fulfills via the factory, which calls the proxy
-///      4. Proxy delegatecalls to this router's execute()
+///      3. Solver calls factory.fulfillSwap() which verifies ZK proof
+///      4. Factory calls the proxy (msg.sender = factory) -> execute() runs via delegatecall
 ///      5. Tokens are transferred from the proxy's balance to the recipient
 contract EphemeralRouter {
+    // ───── State ─────
+
+    /// @notice The factory authorized to call `execute()`. Set once by the factory
+    ///         constructor. Only the factory can trigger token transfers from proxies.
+    address public factory;
+
+    // ───── Modifiers ─────
+
+    modifier onlyFactory() {
+        if (msg.sender != factory) revert Unauthorized();
+        _;
+    }
+
+    // ───── Factory Authorizer ─────
+
+    /// @notice Sets the authorized factory address. Can only be called once.
+    /// @param _factory The EphemeralFactory address
+    function setFactory(address _factory) external {
+        if (_factory == address(0)) revert ZeroAddress();
+        if (factory != address(0)) revert FactoryAlreadySet();
+        factory = _factory;
+    }
+
     // ───── Execute Function ─────
 
     /// @notice Executes the swap logic for an ephemeral contract.
@@ -34,15 +57,14 @@ contract EphemeralRouter {
     /// @param token The ERC20 token address
     /// @return True on success
     ///
-    /// @dev This function is called via delegatecall from an ERC-1167 proxy.
-    ///      In the proxy's context, `address(this)` is the proxy address, so
-    ///      the token transfer comes from the proxy's balance.
+    /// @dev Only callable by the factory. When the factory calls a proxy via .call(),
+    ///      the proxy delegatecalls here with msg.sender == factory.
     function execute(
         address recipient,
         bytes calldata zkProof,
         uint256 amount,
         address token
-    ) external returns (bool) {
+    ) external onlyFactory returns (bool) {
         // Transfer tokens from the proxy (address(this) in delegatecall context)
         // to the recipient (solver or creator for refunds)
         bool success = IERC20(token).transfer(recipient, amount);
@@ -50,17 +72,10 @@ contract EphemeralRouter {
         return true;
     }
 
-    /// @notice Transfers any remaining ETH from the proxy back to the sender.
-    /// @dev Used for gas refunds or cleanup.
-    function drainETH(address to) external {
-        (bool success, ) = to.call{ value: address(this).balance }("");
-        if (!success) revert TransferFailed();
-    }
-
-    /// @notice Allows the proxy to receive ETH for gas
-    receive() external payable {}
-
     // ───── Custom Errors ─────
 
+    error Unauthorized();
     error TransferFailed();
+    error ZeroAddress();
+    error FactoryAlreadySet();
 }
