@@ -15,6 +15,7 @@
  * @packageDocumentation
  */
 
+import path from 'node:path';
 import { type Address, type Hash, encodeAbiParameters, parseAbiParameters, keccak256, encodePacked } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Logger } from 'pino';
@@ -53,6 +54,10 @@ export interface ZkProverConfig {
   solverPrivateKey: `0x${string}`;
   /** Path to the zkey file (for full Groth16 mode) */
   zkeyPath?: string;
+  /** Optional path to the ghostTransfer circuit WASM for full proving */
+  ghostTransferWasmPath?: string;
+  /** Optional path to the exported verification key JSON */
+  verificationKeyPath?: string;
   /** Whether to use full proving (requires snarkjs) */
   useFullProving?: boolean;
   /**
@@ -144,9 +149,9 @@ export class ZkProver {
     const proof = encodeAbiParameters(
       parseAbiParameters('bytes32 r, bytes32 s, uint8 v'),
       [
-        signature.slice(0, 32) as `0x${string}`,
-        signature.slice(32, 64) as `0x${string}`,
-        BigInt(parseInt(signature.slice(66, 68), 16) - 27), // Extract v
+        `0x${signature.slice(2, 66)}` as `0x${string}`,
+        `0x${signature.slice(66, 130)}` as `0x${string}`,
+        BigInt(parseInt(signature.slice(130, 132), 16) - 27), // Extract v
       ],
     );
 
@@ -200,9 +205,18 @@ export class ZkProver {
       };
 
       // Generate the proof
+      const wasmPath = this.config.ghostTransferWasmPath
+        ?? (this.config.zkeyPath ? path.resolve(path.dirname(this.config.zkeyPath), 'ghostTransfer.wasm') : undefined);
+
+      if (!wasmPath) {
+        throw new Error(
+          'ghostTransferWasmPath is required when using full proving and ZKEY_PATH is configured',
+        );
+      }
+
       const { proof, publicSignals } = await this.snarkjs.groth16.fullProve(
         circuitInputs,
-        './zk/build/ghostTransfer.wasm',
+        wasmPath,
         this.config.zkeyPath,
       );
 
@@ -285,7 +299,14 @@ export class ZkProver {
       if (!this.snarkjs) {
         this.snarkjs = await import('snarkjs');
       }
-      const vk = await import(this.config.zkeyPath!.replace('.zkey', '_verification_key.json'), {
+      const verificationKeyPath = this.config.verificationKeyPath
+        ?? this.config.zkeyPath?.replace(/\.zkey$/i, '_verification_key.json');
+
+      if (!verificationKeyPath) {
+        throw new Error('verificationKeyPath is required when verifying full Groth16 proofs');
+      }
+
+      const vk = await import(path.resolve(verificationKeyPath), {
         assert: { type: 'json' },
       });
       return await this.snarkjs.groth16.verify(vk, publicInputs, proof);

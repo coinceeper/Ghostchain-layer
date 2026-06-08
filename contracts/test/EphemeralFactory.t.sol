@@ -951,6 +951,66 @@ contract EphemeralFactoryTest is Test {
         prodVerifier.activateProductionMode();
     }
 
+    function test_RevertWhen_BootstrapDisabledWithoutFullVerifier_Groth16() public {
+        ZKVerifier verifier = new ZKVerifier(keccak256("test"), 0, false, address(this), address(0));
+
+        bytes memory dummyEphemeralKey = abi.encodePacked(hex"02", hex"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc");
+
+        IZKVerifier.GhostTransferPublicInputs memory inputs = IZKVerifier.GhostTransferPublicInputs({
+            senderCommitment: bytes32(uint256(1)),
+            recipientCommitment: bytes32(uint256(2)),
+            contractHash: keccak256("test"),
+            token: address(0x1),
+            amount: 100,
+            nonce: 1,
+            chainId: block.chainid,
+            ephemeralPublicKey: dummyEphemeralKey
+        });
+
+        vm.expectRevert(ZKVerifier.BootstrapNotAllowedInProduction.selector);
+        verifier.verifyGroth16Proof(hex"", inputs);
+    }
+
+    function test_RevertWhen_BootstrapDisabledWithoutFullVerifier_Plonk() public {
+        ZKVerifier verifier = new ZKVerifier(keccak256("test"), 1, false, address(this), address(0));
+
+        bytes memory dummyEphemeralKey = abi.encodePacked(hex"02", hex"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
+
+        IZKVerifier.GhostTransferPublicInputs memory inputs = IZKVerifier.GhostTransferPublicInputs({
+            senderCommitment: bytes32(uint256(1)),
+            recipientCommitment: bytes32(uint256(2)),
+            contractHash: keccak256("test"),
+            token: address(0x1),
+            amount: 100,
+            nonce: 1,
+            chainId: block.chainid,
+            ephemeralPublicKey: dummyEphemeralKey
+        });
+
+        vm.expectRevert(ZKVerifier.BootstrapNotAllowedInProduction.selector);
+        verifier.verifyPlonkProof(hex"", inputs);
+    }
+
+    function test_RevertWhen_BootstrapDisabledWithoutFullVerifier_Nullifier() public {
+        ZKVerifier verifier = new ZKVerifier(keccak256("test"), 0, false, address(this), address(0));
+
+        bytes memory dummyEphemeralKey = abi.encodePacked(hex"02", hex"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+
+        IZKVerifier.NullifierProofPublicInputs memory pi = IZKVerifier.NullifierProofPublicInputs({
+            nullifier: keccak256("test-nullifier"),
+            merkleRoot: keccak256("test-root"),
+            recipient: address(0x1),
+            viewTag: 1,
+            token: address(0x1),
+            amount: 100,
+            chainId: block.chainid,
+            ephemeralPublicKey: dummyEphemeralKey
+        });
+
+        vm.expectRevert(ZKVerifier.BootstrapNotAllowedInProduction.selector);
+        verifier.verifyNullifierProof(0, hex"", pi);
+    }
+
     function test_ProductionMode_OneWaySwitch() public {
         ZKVerifier prodVerifier = new ZKVerifier(keccak256("test"), 0, true, address(this), address(this));
 
@@ -1119,6 +1179,218 @@ contract EphemeralFactoryTest is Test {
             "[GCL-SC-04] Proxy factory MUST be the real factory, immutable"
         );
     }
+
+    // ───── GCL-SC-07: SafeERC20 Transfer Safety Tests ─────
+
+    /// @notice Tests SafeERC20 with standard ERC20 token (like USDC)
+    function test_SafeERC20_StandardToken_Transfer() public {
+        address standardToken = address(new MockERC20("USD Coin", "USDC", 6));
+        MockERC20(standardToken).mint(alice, 10000e6);
+
+        vm.startPrank(alice);
+        MockERC20(standardToken).approve(address(factory), 1000e6);
+        
+        uint256 amount = 1000e6;
+        bytes32 commitment = keccak256("standard-token-test");
+        uint256 expiry = block.timestamp + 1 hours;
+        bytes memory ephemeralKey = abi.encodePacked(hex"02", hex"1111111111111111111111111111111111111111111111111111111111111111");
+        uint8 viewTag = 1;
+
+        bytes32 swapId = factory.createEphemeralSwap(
+            standardToken,
+            amount,
+            CHAIN_ID_ARBITRUM,
+            commitment,
+            expiry,
+            TEST_GHOST_RECIPIENT,
+            ephemeralKey,
+            viewTag
+        );
+
+        assertTrue(swapId != bytes32(0), "Swap should be created with standard token");
+        assertEq(MockERC20(standardToken).balanceOf(address(factory)), amount, "Factory should hold tokens");
+        vm.stopPrank();
+    }
+
+    /// @notice Tests SafeERC20 with USDT-like token (non-returning, non-standard)
+    function test_SafeERC20_USDTLikeToken_Transfer() public {
+        address usdtToken = address(new MockUSDT());
+        MockUSDT(usdtToken).mint(alice, 10000e6);
+
+        vm.startPrank(alice);
+        MockUSDT(usdtToken).approve(address(factory), 1000e6);
+        
+        uint256 amount = 1000e6;
+        bytes32 commitment = keccak256("usdt-like-test");
+        uint256 expiry = block.timestamp + 1 hours;
+        bytes memory ephemeralKey = abi.encodePacked(hex"03", hex"2222222222222222222222222222222222222222222222222222222222222222");
+        uint8 viewTag = 2;
+
+        // This should work even though USDT doesn't return bool
+        bytes32 swapId = factory.createEphemeralSwap(
+            usdtToken,
+            amount,
+            CHAIN_ID_POLYGON,
+            commitment,
+            expiry,
+            TEST_GHOST_RECIPIENT,
+            ephemeralKey,
+            viewTag
+        );
+
+        assertTrue(swapId != bytes32(0), "[GCL-SC-07] Swap should work with USDT-like token");
+        assertEq(MockUSDT(usdtToken).balanceOf(address(factory)), amount, "Factory should hold USDT");
+        vm.stopPrank();
+    }
+
+    /// @notice Tests SafeERC20 with deflationary token
+    function test_SafeERC20_DeflatinaryToken_Rejected() public {
+        address deflatToken = address(new MockDeflationary());
+        MockDeflationary(deflatToken).mint(alice, 10000e18);
+
+        vm.startPrank(alice);
+        MockDeflationary(deflatToken).approve(address(factory), 1000e18);
+        
+        uint256 amount = 1000e18;
+        bytes32 commitment = keccak256("deflat-test");
+        uint256 expiry = block.timestamp + 1 hours;
+        bytes memory ephemeralKey = abi.encodePacked(hex"02", hex"3333333333333333333333333333333333333333333333333333333333333333");
+        uint8 viewTag = 3;
+
+        // Deflationary tokens should be rejected because actual transfer != expected amount
+        vm.expectRevert("SafeERC20: transferFrom did not execute");
+        factory.createEphemeralSwap(
+            deflatToken,
+            amount,
+            CHAIN_ID_ARBITRUM,
+            commitment,
+            expiry,
+            TEST_GHOST_RECIPIENT,
+            ephemeralKey,
+            viewTag
+        );
+        vm.stopPrank();
+    }
+
+    /// @notice Tests SafeERC20 rejects broken/malicious token
+    function test_SafeERC20_BrokenToken_Rejected() public {
+        address brokenToken = address(new MockBrokenERC20());
+        MockBrokenERC20(brokenToken).mint(alice, 10000e18);
+
+        vm.startPrank(alice);
+        MockBrokenERC20(brokenToken).approve(address(factory), 1000e18);
+        
+        uint256 amount = 1000e18;
+        bytes32 commitment = keccak256("broken-test");
+        uint256 expiry = block.timestamp + 1 hours;
+        bytes memory ephemeralKey = abi.encodePacked(hex"02", hex"4444444444444444444444444444444444444444444444444444444444444444");
+        uint8 viewTag = 4;
+
+        // Broken token should be rejected - returns true but doesn't transfer
+        vm.expectRevert("SafeERC20: transferFrom did not execute");
+        factory.createEphemeralSwap(
+            brokenToken,
+            amount,
+            CHAIN_ID_ARBITRUM,
+            commitment,
+            expiry,
+            TEST_GHOST_RECIPIENT,
+            ephemeralKey,
+            viewTag
+        );
+        vm.stopPrank();
+    }
+
+    /// @notice Tests SafeERC20 with proxy mode using USDT-like token
+    function test_SafeERC20_USDTLikeToken_ProxyMode() public {
+        address usdtToken = address(new MockUSDT());
+        MockUSDT(usdtToken).mint(alice, 10000e6);
+
+        vm.startPrank(alice);
+        MockUSDT(usdtToken).approve(address(factory), 1000e6);
+        
+        uint256 amount = 1000e6;
+        bytes32 commitment = keccak256("usdt-proxy-test");
+        uint256 expiry = block.timestamp + 1 hours;
+        bytes memory ephemeralKey = abi.encodePacked(hex"03", hex"5555555555555555555555555555555555555555555555555555555555555555");
+        uint8 viewTag = 5;
+
+        // Proxy mode should also work with USDT
+        (bytes32 swapId, address proxy) = factory.createEphemeralContract(
+            usdtToken,
+            amount,
+            CHAIN_ID_POLYGON,
+            commitment,
+            expiry,
+            TEST_GHOST_RECIPIENT,
+            ephemeralKey,
+            viewTag
+        );
+
+        assertTrue(swapId != bytes32(0), "[GCL-SC-07] Proxy swap should work with USDT");
+        assertTrue(proxy != address(0), "Proxy should be created");
+        assertEq(MockUSDT(usdtToken).balanceOf(proxy), amount, "Proxy should hold USDT tokens");
+        vm.stopPrank();
+    }
+
+    /// @notice Tests SafeERC20 fulfillment with USDT-like token
+    function test_SafeERC20_USDTLikeToken_Fulfillment() public {
+        address usdtToken = address(new MockUSDT());
+        MockUSDT(usdtToken).mint(alice, 10000e6);
+
+        // Create swap with USDT
+        vm.startPrank(alice);
+        uint256 amount = 1000e6;
+        bytes32 commitment = keccak256("usdt-fulfill-test");
+        uint256 expiry = block.timestamp + 1 hours;
+        bytes memory ephemeralKey = abi.encodePacked(hex"02", hex"6666666666666666666666666666666666666666666666666666666666666666");
+        uint8 viewTag = 6;
+
+        MockUSDT(usdtToken).approve(address(factory), amount);
+        bytes32 swapId = factory.createEphemeralSwap(
+            usdtToken,
+            amount,
+            CHAIN_ID_ARBITRUM,
+            commitment,
+            expiry,
+            TEST_GHOST_RECIPIENT,
+            ephemeralKey,
+            viewTag
+        );
+        vm.stopPrank();
+
+        address recipient = makeAddr("usdt-recipient");
+        bytes memory dummyProof = hex"0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000200";
+        IZKVerifier.GhostTransferPublicInputs memory pi = IZKVerifier.GhostTransferPublicInputs({
+            senderCommitment: commitment,
+            recipientCommitment: bytes32(0),
+            contractHash: keccak256(abi.encodePacked(swapId, address(factory))),
+            token: usdtToken,
+            amount: amount,
+            nonce: uint256(swapId),
+            chainId: block.chainid,
+            ephemeralPublicKey: ephemeralKey
+        });
+        vm.mockCall(
+            address(verifier),
+            abi.encodeWithSelector(IZKVerifier.verify.selector, 0, dummyProof, pi),
+            abi.encode(true)
+        );
+
+        uint256 balanceBefore = MockUSDT(usdtToken).balanceOf(recipient);
+
+        // Fulfill - should transfer USDT correctly even though it doesn't return bool
+        vm.prank(bob);
+        bytes32 contractHash = keccak256(abi.encodePacked(swapId, address(factory)));
+        factory.fulfillSwap(swapId, dummyProof, recipient, contractHash, ephemeralKey);
+
+        uint256 balanceAfter = MockUSDT(usdtToken).balanceOf(recipient);
+        assertEq(
+            balanceAfter,
+            balanceBefore + amount,
+            "[GCL-SC-07] Recipient should receive USDT correctly"
+        );
+    }
 }
 
 /// @title MockFullVerifier
@@ -1135,7 +1407,7 @@ contract MockFullVerifier {
 }
 
 /// @title MockERC20
-/// @notice Minimal ERC20 mock for tests
+/// @notice Minimal ERC20 mock for tests - Standard compliant token
 contract MockERC20 {
     string public name;
     string public symbol;
@@ -1163,6 +1435,108 @@ contract MockERC20 {
         allowance[from][msg.sender] -= amount;
         balanceOf[from] -= amount;
         balanceOf[to] += amount;
+        return true;
+    }
+
+    function approve(address spender, uint256 amount) external returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        return true;
+    }
+}
+
+/// @title MockUSDT
+/// @notice USDT-like ERC20 mock - Returns nothing instead of bool (non-standard)
+/// This simulates the actual USDT token behavior
+contract MockUSDT {
+    string public name = "Tether USD";
+    string public symbol = "USDT";
+    uint8 public decimals = 6;
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+    }
+
+    // USDT doesn't return bool - just returns nothing
+    function transfer(address to, uint256 amount) external {
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+    }
+
+    // USDT doesn't return bool
+    function transferFrom(address from, address to, uint256 amount) external {
+        allowance[from][msg.sender] -= amount;
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+    }
+
+    function approve(address spender, uint256 amount) external {
+        allowance[msg.sender][spender] = amount;
+    }
+}
+
+/// @title MockDeflationary
+/// @notice Deflationary token that takes a 1% fee on transfers
+contract MockDeflationary {
+    string public name = "Deflationary Token";
+    string public symbol = "DEFLAT";
+    uint8 public decimals = 18;
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+    uint256 public constant FEE_PERCENT = 1; // 1% fee
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+    }
+
+    function transfer(address to, uint256 amount) external returns (bool) {
+        uint256 fee = (amount * FEE_PERCENT) / 100;
+        uint256 transferAmount = amount - fee;
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += transferAmount;
+        // fee is burned
+        return true;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        uint256 fee = (amount * FEE_PERCENT) / 100;
+        uint256 transferAmount = amount - fee;
+        allowance[from][msg.sender] -= amount;
+        balanceOf[from] -= amount;
+        balanceOf[to] += transferAmount;
+        // fee is burned
+        return true;
+    }
+
+    function approve(address spender, uint256 amount) external returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        return true;
+    }
+}
+
+/// @title MockBrokenERC20
+/// @notice Broken token that returns success but doesn't actually transfer
+contract MockBrokenERC20 {
+    string public name = "Broken Token";
+    string public symbol = "BROKEN";
+    uint8 public decimals = 18;
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+    }
+
+    // Returns true but doesn't actually transfer (malicious token)
+    function transfer(address to, uint256 amount) external returns (bool) {
+        // Intentionally doesn't update balances - malicious!
+        return true;
+    }
+
+    // Returns true but doesn't actually transfer
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        // Intentionally doesn't update balances
         return true;
     }
 

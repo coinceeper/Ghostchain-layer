@@ -23,6 +23,8 @@
  *   Adding a new chain only requires adding its RPC URL to the .env file.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { createPublicClient, http, type Address } from 'viem';
 import { getChainById, loadRpcEndpointsFromEnv } from 'ghostchain-sdk';
 import { startApiServer } from './api.js';
@@ -40,12 +42,16 @@ import { ZkProver } from './zk-prover.js';
  * Discovers chains dynamically from RPC_* env vars.
  * Uses KeyManager abstraction for secure key handling.
  */
-function loadConfig(): SolverConfig {
-  // Auto-discover chains from RPC_<SHORT_NAME> env vars
+export function loadConfig(): SolverConfig {
   const rpcEndpoints = loadRpcEndpointsFromEnv();
   const supportedChainIds = Object.keys(rpcEndpoints).map(Number);
 
-  // Build factory and verifier address maps from env vars
+  if (supportedChainIds.length === 0) {
+    throw new Error(
+      'No RPC endpoints configured. Set RPC_<CHAIN_SHORT_NAME> environment variables.',
+    );
+  }
+
   const factoryAddresses: Record<number, Address> = {};
   const verifierAddresses: Record<number, Address> = {};
 
@@ -65,7 +71,6 @@ function loadConfig(): SolverConfig {
     }
   }
 
-  // Fallback: also check the older flat env var naming (e.g., ARBITRUM_FACTORY)
   for (const chainId of supportedChainIds) {
     if (!factoryAddresses[chainId]) {
       const meta = getChainById(chainId);
@@ -74,6 +79,58 @@ function loadConfig(): SolverConfig {
       if (addr) {
         factoryAddresses[chainId] = addr as Address;
       }
+    }
+  }
+
+  const isProductionEnvironment =
+    process.env.PRODUCTION_MODE === 'true' ||
+    process.env.NODE_ENV === 'production';
+
+  const keyManagerType = process.env.KEY_MANAGER_TYPE ||
+    (isProductionEnvironment ? 'aws-kms' : 'local');
+  const solverPrivateKey = process.env.SOLVER_PRIVATE_KEY || '';
+  const zkeyPath = process.env.ZKEY_PATH ? path.resolve(process.cwd(), process.env.ZKEY_PATH) : undefined;
+  const ghostTransferWasmPath = process.env.GHOST_TRANSFER_WASM_PATH
+    ? path.resolve(process.cwd(), process.env.GHOST_TRANSFER_WASM_PATH)
+    : undefined;
+  const verificationKeyPath = process.env.VERIFICATION_KEY_PATH
+    ? path.resolve(process.cwd(), process.env.VERIFICATION_KEY_PATH)
+    : zkeyPath?.replace(/\.zkey$/i, '_verification_key.json');
+
+  if (keyManagerType === 'local') {
+    if (isProductionEnvironment) {
+      throw new Error(
+        'Local key manager is not allowed in production. Set KEY_MANAGER_TYPE=aws-kms or use a Vault-backed manager.',
+      );
+    }
+    if (!solverPrivateKey) {
+      throw new Error('SOLVER_PRIVATE_KEY is required for local key manager');
+    }
+  }
+
+  if (keyManagerType === 'aws-kms' && !process.env.AWS_KMS_KEY_ID) {
+    throw new Error('AWS_KMS_KEY_ID is required for AWS KMS key manager');
+  }
+
+  if (process.env.PRODUCTION_MODE === 'true' && process.env.USE_FULL_PROVING !== 'true') {
+    throw new Error('PRODUCTION_MODE=true requires USE_FULL_PROVING=true');
+  }
+
+  if (process.env.USE_FULL_PROVING === 'true') {
+    if (!zkeyPath) {
+      throw new Error('USE_FULL_PROVING=true requires ZKEY_PATH to be set');
+    }
+    if (!ghostTransferWasmPath) {
+      throw new Error('USE_FULL_PROVING=true requires GHOST_TRANSFER_WASM_PATH to be set');
+    }
+    if (!fs.existsSync(zkeyPath)) {
+      throw new Error(`ZKEY_PATH not found: ${zkeyPath}`);
+    }
+    if (!fs.existsSync(ghostTransferWasmPath)) {
+      throw new Error(`GHOST_TRANSFER_WASM_PATH not found: ${ghostTransferWasmPath}`);
+    }
+    if (verificationKeyPath && !fs.existsSync(verificationKeyPath)) {
+      throw new Error(`VERIFICATION_KEY_PATH not found: ${verificationKeyPath}`);
     }
   }
 
@@ -96,7 +153,9 @@ function loadConfig(): SolverConfig {
     apiPort: Number(process.env.API_PORT) || 3000,
     apiKey: process.env.API_KEY || '',
     useFullProving: process.env.USE_FULL_PROVING === 'true',
-    zkeyPath: process.env.ZKEY_PATH,
+    zkeyPath,
+    ghostTransferWasmPath,
+    verificationKeyPath,
   };
 }
 
@@ -227,8 +286,10 @@ async function main() {
   logger.info('Solver is fully operational');
 }
 
-// Start the application
-main().catch((error) => {
-  console.error('Fatal error:', error);
-  process.exit(1);
-});
+// Start the application only when running directly, not when imported by tests.
+if (process.env.NODE_ENV !== 'test') {
+  main().catch((error) => {
+    console.error('Fatal error:', error);
+    process.exit(1);
+  });
+}

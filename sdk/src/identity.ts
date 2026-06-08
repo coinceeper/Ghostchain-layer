@@ -123,10 +123,9 @@ function getCompressedPubKey(privateKey: Uint8Array): Uint8Array {
  * Converts a public key to an Ethereum address (last 20 bytes of keccak256 hash).
  */
 function publicKeyToAddress(publicKey: Uint8Array): Address {
-  // Remove the prefix (0x04 for uncompressed, 0x02/0x03 for compressed)
-  // For compressed keys, we need to decompress first
-  const uncompressed = secp256k1.getPublicKey(publicKey, false);
-  // Remove the 0x04 prefix
+  // Decompress the public key if necessary and compute the Ethereum address.
+  const point = secp256k1.ProjectivePoint.fromHex(publicKey);
+  const uncompressed = point.toRawBytes(false);
   const hash = keccak_256(uncompressed.slice(1));
   const addressHex = bytesToHex(hash.slice(-20));
   return getAddress(`0x${addressHex}`);

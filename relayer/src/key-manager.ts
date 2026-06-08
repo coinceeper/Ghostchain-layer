@@ -22,6 +22,8 @@ import {
   keccak256,
 } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
+import { recoverPublicKey } from '@noble/curves/secp256k1';
+import { encode as rlpEncode } from '@ethereumjs/rlp';
 import { getChainById } from 'ghostchain-sdk';
 import type { Logger } from 'pino';
 
@@ -183,46 +185,46 @@ export class AWSKMSKeyManager implements KeyManager {
   private logger: Logger;
   private kmsClient: any; // AWS KMS client
   private kmsKeyId: string;
+  private rpcEndpoints: Record<number, string>;
 
   constructor(
     kmsKeyId: string,
     region: string,
     logger: Logger,
-    _rpcEndpoints?: Record<number, string>,
+    rpcEndpoints: Record<number, string> = {},
   ) {
     this.kmsKeyId = kmsKeyId;
     this.logger = logger.child({ module: 'AWSKMSKeyManager' });
+    this.rpcEndpoints = rpcEndpoints;
 
-    // Lazy-import AWS SDK
     try {
       const { KMSClient } = require('@aws-sdk/client-kms');
       this.kmsClient = new KMSClient({ region });
-    } catch {
-      this.logger.warn('AWS SDK not available, KMS key manager will not work');
+    } catch (error) {
+      this.logger.error('AWS SDK is required for AWS KMS key manager', error);
+      throw new Error('AWS SDK client-kms dependency is missing');
     }
 
-    // Derive Ethereum address from the KMS public key
     this.address = '0x0000000000000000000000000000000000000000';
-    this.initializeAddress();
+    this.initializeAddress().catch((error) => {
+      this.logger.error('Unable to initialize KMS address', error);
+    });
   }
 
   private async initializeAddress(): Promise<void> {
-    try {
-      const { GetPublicKeyCommand } = require('@aws-sdk/client-kms');
-      const response = await this.kmsClient.send(
-        new GetPublicKeyCommand({ KeyId: this.kmsKeyId }),
-      );
+    const { GetPublicKeyCommand } = require('@aws-sdk/client-kms');
+    const response = await this.kmsClient.send(
+      new GetPublicKeyCommand({ KeyId: this.kmsKeyId }),
+    );
 
-      // Derive Ethereum address from the uncompressed public key
-      const publicKeyBytes = new Uint8Array(response.PublicKey);
-      // SEC1 uncompressed format: 0x04 + x + y (65 bytes)
-      if (publicKeyBytes.length === 65 && publicKeyBytes[0] === 0x04) {
-        const hash = keccak256(publicKeyBytes.slice(1) as `0x${string}`);
-        this.address = `0x${hash.slice(-40)}` as Address;
-      }
-    } catch (error) {
-      this.logger.error('Failed to derive address from KMS key:', error);
+    const publicKeyBytes = new Uint8Array(response.PublicKey);
+    if (publicKeyBytes.length === 65 && publicKeyBytes[0] === 0x04) {
+      const hash = keccak256(publicKeyBytes.slice(1) as `0x${string}`);
+      this.address = `0x${hash.slice(-40)}` as Address;
+      this.logger.info(`Derived KMS address: ${this.address}`);
+      return;
     }
+    throw new Error('Unexpected KMS public key format. Expected uncompressed SEC1 key.');
   }
 
   getAddress(): Address {
@@ -230,83 +232,295 @@ export class AWSKMSKeyManager implements KeyManager {
   }
 
   async signMessage(message: `0x${string}`): Promise<`0x${string}`> {
-    try {
-      const { SignCommand } = require('@aws-sdk/client-kms');
-      const { SignatureAlgorithm, MessageType, KeySpec } = require('@aws-sdk/client-kms');
+    const { SignCommand, SignatureAlgorithm, MessageType } = require('@aws-sdk/client-kms');
 
-      const response = await this.kmsClient.send(
-        new SignCommand({
-          KeyId: this.kmsKeyId,
-          Message: Buffer.from(message.slice(2), 'hex'),
-          MessageType: MessageType.DIGEST,
-          SignatureAlgorithm: SignatureAlgorithm.ECDSA_SHA_256,
-        }),
-      );
+    const response = await this.kmsClient.send(
+      new SignCommand({
+        KeyId: this.kmsKeyId,
+        Message: Buffer.from(message.slice(2), 'hex'),
+        MessageType: MessageType.DIGEST,
+        SignatureAlgorithm: SignatureAlgorithm.ECDSA_SHA_256,
+      }),
+    );
 
-      // Convert the DER-encoded signature to v/r/s format
-      const signature = this.derToVrs(response.Signature);
-      return signature;
-    } catch (error) {
-      this.logger.error('KMS signing failed:', error);
-      throw error;
-    }
+    return this.derToVrs(new Uint8Array(response.Signature));
   }
 
   async signAndSendTransaction(
-    _chainId: number,
+    chainId: number,
     tx: TransactionRequest,
   ): Promise<SignedTransaction> {
-    // AWS KMS transaction signing requires:
-    // 1. Build the unsigned RLP-encoded transaction (EIP-1559 or legacy)
-    // 2. Hash it with keccak256
-    // 3. Sign the hash via KMS SignCommand (ECDSA_SHA_256)
-    // 4. Reconstruct the signed transaction with the RSV signature
-    // 5. Broadcast via sendRawTransaction
-    //
-    // This is not yet implemented because the low-level transaction
-    // assembly must be done manually (Viem WalletClient can't be used
-    // since the private key never leaves KMS).
+    const rpcUrl = this.rpcEndpoints[chainId];
+    if (!rpcUrl) {
+      throw new Error(
+        `AWSKMSKeyManager: No RPC endpoint configured for chain ${chainId}`,
+      );
+    }
 
-    this.logger.info(
-      `[AWS KMS] Signing tx: to=${tx.to}, chainId=${tx.chainId}`,
-    );
+    const nonceHex = await this.rpcRequest(rpcUrl, 'eth_getTransactionCount', [
+      this.address,
+      'pending',
+    ]);
+    const nonce = BigInt(nonceHex as string);
 
-    throw new Error(
-      'AWS KMS transaction signing not yet implemented. ' +
-      'Use LocalKeyManager for development, or implement low-level RLP ' +
-      'transaction construction with KMS SignCommand for production.',
-    );
+    const value = tx.value ?? 0n;
+    const gasLimit = tx.gasLimit ?? BigInt(0);
+
+    const gasLimitHex = tx.gasLimit
+      ? `0x${tx.gasLimit.toString(16)}`
+      : await this.rpcRequest(rpcUrl, 'eth_estimateGas', [
+          {
+            from: this.address,
+            to: tx.to,
+            data: tx.data,
+            value: `0x${value.toString(16)}`,
+          },
+        ]);
+
+    const block = await this.rpcRequest(rpcUrl, 'eth_getBlockByNumber', [
+      'pending',
+      false,
+    ]);
+    const baseFeePerGas = (block?.baseFeePerGas as string | undefined) ?? null;
+
+    const toBytes = this.hexToBytes(tx.to);
+    const dataBytes = this.hexToBytes(tx.data);
+    const nonceBytes = this.hexToBytes(`0x${nonce.toString(16)}`);
+    const gasLimitBytes = this.hexToBytes(gasLimitHex as string);
+    const valueBytes = this.hexToBytes(`0x${value.toString(16)}`);
+
+    let rawTransaction: `0x${string}`;
+    if (baseFeePerGas) {
+      const maxPriorityFeePerGas = tx.maxPriorityFeePerGas ?? 2_000_000_000n;
+      const maxFeePerGas = tx.maxFeePerGas ??
+        (BigInt(baseFeePerGas) * 2n + maxPriorityFeePerGas);
+
+      const unsigned = this.serializeEip1559Transaction(
+        BigInt(chainId),
+        nonceBytes,
+        maxPriorityFeePerGas,
+        maxFeePerGas,
+        gasLimitBytes,
+        toBytes,
+        valueBytes,
+        dataBytes,
+      );
+      rawTransaction = await this.signAndSerializeTransaction(unsigned.encoded, unsigned.items, chainId, false);
+    } else {
+      const gasPriceHex = await this.rpcRequest(rpcUrl, 'eth_gasPrice');
+      const gasPrice = tx.maxFeePerGas ?? BigInt(gasPriceHex as string);
+      const unsigned = this.serializeLegacyTransaction(
+        BigInt(chainId),
+        nonceBytes,
+        gasPrice,
+        gasLimitBytes,
+        toBytes,
+        valueBytes,
+        dataBytes,
+      );
+      rawTransaction = await this.signAndSerializeTransaction(unsigned.encoded, unsigned.items, chainId, true);
+    }
+
+    const transactionHash = await this.rpcRequest(rpcUrl, 'eth_sendRawTransaction', [
+      rawTransaction,
+    ]);
+
+    return {
+      rawTransaction,
+      transactionHash: transactionHash as Hash,
+      from: this.address,
+    };
   }
 
   getKeyManagerType(): string {
     return 'aws-kms';
   }
 
-  /**
-   * Converts a DER-encoded ECDSA signature to v/r/s format.
-   */
-  private derToVrs(derSignature: Uint8Array): `0x${string}` {
-    // Parse DER-encoded ECDSA signature
-    // DER format: 0x30 <len> 0x02 <r_len> <r> 0x02 <s_len> <s>
-    let offset = 2; // Skip 0x30 <len>
-    offset += 2; // Skip 0x02 <r_len>
+  private rpcRequest(rpcUrl: string, method: string, params: any[]): Promise<any> {
+    return fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`RPC request failed: ${res.status} ${body}`);
+      }
+      const json = await res.json();
+      if (json.error) {
+        throw new Error(`RPC error: ${json.error.message || JSON.stringify(json.error)}`);
+      }
+      return json.result;
+    });
+  }
+
+  private hexToBytes(value: string): Uint8Array {
+    let hex = value.replace(/^0x/, '');
+    if (hex.length === 0) {
+      return new Uint8Array([]);
+    }
+    if (hex.length % 2 === 1) {
+      hex = `0${hex}`;
+    }
+    return new Uint8Array(Buffer.from(hex, 'hex'));
+  }
+
+  private bytesToHex(bytes: Uint8Array): string {
+    return `0x${Buffer.from(bytes).toString('hex')}`;
+  }
+
+  private serializeLegacyTransaction(
+    chainId: bigint,
+    nonce: Uint8Array,
+    gasPrice: bigint,
+    gasLimit: Uint8Array,
+    to: Uint8Array,
+    value: Uint8Array,
+    data: Uint8Array,
+  ): { encoded: Uint8Array; items: any[] } {
+    const items = [
+      this.trimLeadingZeros(nonce),
+      this.trimLeadingZeros(this.hexToBytes(`0x${gasPrice.toString(16)}`)),
+      this.trimLeadingZeros(gasLimit),
+      this.trimLeadingZeros(to),
+      this.trimLeadingZeros(value),
+      this.trimLeadingZeros(data),
+      this.trimLeadingZeros(this.hexToBytes(`0x${chainId.toString(16)}`)),
+      new Uint8Array([]),
+      new Uint8Array([]),
+    ];
+    return { encoded: rlpEncode(items), items };
+  }
+
+  private serializeEip1559Transaction(
+    chainId: bigint,
+    nonce: Uint8Array,
+    maxPriorityFeePerGas: bigint,
+    maxFeePerGas: bigint,
+    gasLimit: Uint8Array,
+    to: Uint8Array,
+    value: Uint8Array,
+    data: Uint8Array,
+  ): { encoded: Uint8Array; items: any[] } {
+    const items = [
+      this.trimLeadingZeros(this.hexToBytes(`0x${chainId.toString(16)}`)),
+      this.trimLeadingZeros(nonce),
+      this.trimLeadingZeros(this.hexToBytes(`0x${maxPriorityFeePerGas.toString(16)}`)),
+      this.trimLeadingZeros(this.hexToBytes(`0x${maxFeePerGas.toString(16)}`)),
+      this.trimLeadingZeros(gasLimit),
+      this.trimLeadingZeros(to),
+      this.trimLeadingZeros(value),
+      this.trimLeadingZeros(data),
+      [],
+    ];
+    return { encoded: rlpEncode(items), items };
+  }
+
+  private async signAndSerializeTransaction(
+    unsignedTransaction: Uint8Array,
+    unsignedItems: any[],
+    chainId: number,
+    legacy: boolean,
+  ): Promise<`0x${string}`> {
+    const unsignedPayload = legacy
+      ? unsignedTransaction
+      : new Uint8Array([0x02, ...unsignedTransaction]);
+    const transactionHash = keccak256(unsignedPayload) as `0x${string}`;
+
+    const signature = await this.kmsSignDigest(transactionHash);
+    const { r, s, v } = await this.extractSignatureParts(
+      transactionHash,
+      signature,
+      chainId,
+      legacy,
+    );
+
+    const signedItems = [...unsignedItems, this.trimLeadingZeros(this.hexToBytes(v)), this.trimLeadingZeros(this.hexToBytes(r)), this.trimLeadingZeros(this.hexToBytes(s))];
+    const signedPayload = rlpEncode(signedItems);
+
+    const raw = legacy
+      ? this.bytesToHex(signedPayload)
+      : this.bytesToHex(new Uint8Array([0x02, ...signedPayload]));
+
+    return raw as `0x${string}`;
+  }
+
+  private async kmsSignDigest(digest: `0x${string}`): Promise<Uint8Array> {
+    const { SignCommand, SignatureAlgorithm, MessageType } = require('@aws-sdk/client-kms');
+    const response = await this.kmsClient.send(
+      new SignCommand({
+        KeyId: this.kmsKeyId,
+        Message: Buffer.from(digest.slice(2), 'hex'),
+        MessageType: MessageType.DIGEST,
+        SignatureAlgorithm: SignatureAlgorithm.ECDSA_SHA_256,
+      }),
+    );
+    return new Uint8Array(response.Signature);
+  }
+
+  private async extractSignatureParts(
+    digest: `0x${string}`,
+    derSignature: Uint8Array,
+    chainId: number,
+    legacy: boolean,
+  ): Promise<{ r: `0x${string}`; s: `0x${string}`; v: `0x${string}` }> {
+    const { r, s } = this.parseDerSignature(derSignature);
+    const recoveryId = await this.findRecoveryId(digest, r, s);
+    const v = legacy
+      ? `0x${(recoveryId + 35 + chainId * 2).toString(16)}`
+      : `0x${recoveryId.toString(16)}`;
+    return { r, s, v };
+  }
+
+  private parseDerSignature(derSignature: Uint8Array): { r: `0x${string}`; s: `0x${string}` } {
+    let offset = 2;
     const rLen = derSignature[offset - 1];
     const r = derSignature.slice(offset, offset + rLen);
-    offset += rLen;
-    offset += 1; // Skip 0x02
-    const sLen = derSignature[offset];
-    offset += 1;
-    const s = derSignature.slice(offset, offset + sLen);
-
-    // Pad r and s to 32 bytes
-    const rPadded = new Uint8Array(32);
-    const sPadded = new Uint8Array(32);
-    rPadded.set(r.length <= 32 ? r : r.slice(r.length - 32), 32 - Math.min(r.length, 32));
-    sPadded.set(s.length <= 32 ? s : s.slice(s.length - 32), 32 - Math.min(s.length, 32));
-
-    // Encode as v/r/s (v = 27 for uncompressed recovery)
-    return `0x${Buffer.from(rPadded).toString('hex')}${Buffer.from(sPadded).toString('hex')}1b` as `0x${string}`;
+    offset += rLen + 2;
+    const sLen = derSignature[offset - 1];
+    const s = derSignature.slice(offset + 1, offset + 1 + sLen);
+    return {
+      r: `0x${Buffer.from(r).toString('hex')}` as `0x${string}`,
+      s: `0x${Buffer.from(s).toString('hex')}` as `0x${string}`,
+    };
   }
+
+  private async findRecoveryId(
+    digest: `0x${string}`,
+    r: `0x${string}`,
+    s: `0x${string}`,
+  ): Promise<number> {
+    const messageHash = this.hexToBytes(digest);
+    const signature = new Uint8Array([
+      ...this.hexToBytes(r),
+      ...this.hexToBytes(s),
+    ]);
+
+    for (const recovery of [0, 1] as const) {
+      const publicKey = recoverPublicKey(messageHash, signature, recovery, false);
+      const addressHash = keccak256(publicKey.slice(1) as `0x${string}`);
+      const candidate = `0x${addressHash.slice(-40)}`;
+      if (candidate.toLowerCase() === this.address.toLowerCase()) {
+        return recovery;
+      }
+    }
+
+    throw new Error('Unable to recover signature v value from KMS signature');
+  }
+
+  private trimLeadingZeros(bytes: Uint8Array): Uint8Array {
+    let index = 0;
+    while (index < bytes.length && bytes[index] === 0) {
+      index += 1;
+    }
+    return bytes.slice(index);
+  }
+
+  private derToVrs(derSignature: Uint8Array): `0x${string}` {
+    const { r, s } = this.parseDerSignature(derSignature);
+    return `0x${r.slice(2)}${s.slice(2)}00` as `0x${string}`;
+  }
+
 }
 
 // ───── Key Manager Factory ─────
@@ -356,11 +570,8 @@ export function createKeyManager(
       );
 
     default:
-      logger.warn(`Unknown key manager type "${type}", falling back to local`);
-      return new LocalKeyManager(
-        config.privateKey,
-        logger,
-        config.rpcEndpoints || {},
+      throw new Error(
+        `Unsupported key manager type "${type}". Allowed values are: local, aws-kms, vault.`,
       );
   }
 }

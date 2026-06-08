@@ -6,6 +6,8 @@ import { IZKVerifier } from "./interfaces/IZKVerifier.sol";
 import { IERC20 } from "./interfaces/IERC20.sol";
 import { EphemeralRouter } from "./EphemeralRouter.sol";
 import { Ownable } from "./lib/Ownable.sol";
+import { SafeERC20 } from "./lib/SafeERC20.sol";
+import { RateLimiter } from "./lib/RateLimiter.sol";
 
 /// @title EphemeralFactory
 /// @notice Creates and manages one-time ephemeral swap contracts for private
@@ -17,6 +19,9 @@ import { Ownable } from "./lib/Ownable.sol";
 ///      GCL-ZK-01 fix: ephemeralPublicKey is stored on-chain and used in ZK
 ///      proof verification to constrain sharedSecret derivation.
 contract EphemeralFactory is IEphemeralFactory, Ownable {
+    using SafeERC20 for IERC20;
+    using RateLimiter for RateLimiter.RateLimit;
+
     // ───── State ─────
 
     /// @notice Address of the ZK verifier contract
@@ -32,6 +37,12 @@ contract EphemeralFactory is IEphemeralFactory, Ownable {
     /// @notice Minimum duration for a swap
     uint256 public constant MIN_DURATION = 5 minutes;
 
+    /// @notice Maximum swaps per user per hour (rate limiting)
+    uint256 public constant RATE_LIMIT_MAX_REQUESTS = 10;
+
+    /// @notice Rate limiting time window (1 hour)
+    uint256 public constant RATE_LIMIT_WINDOW = 1 hours;
+
     /// @notice Maps swapId to swap details
     mapping(bytes32 => EphemeralSwap) private _swaps;
 
@@ -43,6 +54,12 @@ contract EphemeralFactory is IEphemeralFactory, Ownable {
 
     /// @notice Total number of minimal proxy contracts created
     uint256 public totalContractsCreated;
+
+    /// @notice Rate limiter for swap creation
+    RateLimiter.RateLimit private _rateLimiter;
+
+    /// @notice Addresses exempt from rate limiting
+    mapping(address => bool) public rateLimitExempt;
 
     // ───── Events ─────
 
@@ -64,11 +81,36 @@ contract EphemeralFactory is IEphemeralFactory, Ownable {
         verifier = _verifier;
         implementation = _implementation;
 
+        // Initialize rate limiting (10 requests per hour)
+        _rateLimiter.initialize(RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW);
+
         // GCL-SC-04 FIX: The implementation contract's factory storage is never
         // evaluated at runtime — only each proxy's own storage matters (set
         // atomically during CREATE via custom init code in _createMinimalProxy).
         // No external initialization function exists on the router, so no
         // front-running window exists at any point in the lifecycle.
+    }
+
+    // ───── Rate Limiting Management ─────
+
+    /// @notice Sets rate limit exemption for an address (governance override)
+    /// @param _address Address to exempt or un-exempt
+    /// @param _exempt True to exempt, false to revoke exemption
+    function setRateLimitExempt(address _address, bool _exempt) external onlyOwner {
+        rateLimitExempt[_address] = _exempt;
+    }
+
+    /// @notice Gets the current rate limit status for an address
+    /// @param _address Address to check
+    /// @return Current number of requests in the active window
+    function getRateLimitStatus(address _address) external view returns (uint256) {
+        return _rateLimiter.getRequestCount(_address);
+    }
+
+    /// @notice Resets rate limit for an address (emergency)
+    /// @param _address Address to reset
+    function resetRateLimit(address _address) external onlyOwner {
+        _rateLimiter.resetAccount(_address);
     }
 
     // ───── External Write Functions ─────
@@ -84,13 +126,18 @@ contract EphemeralFactory is IEphemeralFactory, Ownable {
         bytes calldata ephemeralPublicKey,
         uint8 viewTag
     ) external returns (bytes32 swapId) {
+        // Apply rate limiting (bypass for exempt addresses)
+        if (!rateLimitExempt[msg.sender]) {
+            _rateLimiter.recordRequest(msg.sender, 1);
+        }
+
         if (token == address(0)) revert ZeroAddressNotAllowed();
         if (amount == 0) revert InvalidAmount();
         if (commitment == bytes32(0)) revert InvalidCommitment();
         if (recipientGhostAddress == address(0)) revert ZeroAddressNotAllowed();
         if (expiry < block.timestamp + MIN_DURATION) revert ExpiryTooShort();
         if (expiry > block.timestamp + MAX_DURATION) revert ExpiryTooLong();
-        if (ephemeralPublicKey.length == 0) revert InvalidEphemeralKey();
+        if (ephemeralPublicKey.length != 33 && ephemeralPublicKey.length != 65) revert InvalidEphemeralKey();
 
         // Generate unique swap ID
         swapId = keccak256(
@@ -108,7 +155,7 @@ contract EphemeralFactory is IEphemeralFactory, Ownable {
         if (_swaps[swapId].createdAt != 0) revert SwapAlreadyExists();
 
         // Transfer tokens from user to this contract (escrow mode)
-        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
 
         // Store swap with recipientGhostAddress and ephemeralPublicKey
         _swaps[swapId] = EphemeralSwap({
@@ -125,6 +172,7 @@ contract EphemeralFactory is IEphemeralFactory, Ownable {
             createdAt: block.timestamp,
             expiry: expiry,
             proxy: address(0),
+            viewTag: viewTag,
             ephemeralPublicKey: ephemeralPublicKey
         });
 
@@ -156,13 +204,18 @@ contract EphemeralFactory is IEphemeralFactory, Ownable {
         bytes calldata ephemeralPublicKey,
         uint8 viewTag
     ) external returns (bytes32 swapId, address proxy) {
+        // Apply rate limiting (bypass for exempt addresses)
+        if (!rateLimitExempt[msg.sender]) {
+            _rateLimiter.recordRequest(msg.sender, 1);
+        }
+
         if (token == address(0)) revert ZeroAddressNotAllowed();
         if (amount == 0) revert InvalidAmount();
         if (commitment == bytes32(0)) revert InvalidCommitment();
         if (recipientGhostAddress == address(0)) revert ZeroAddressNotAllowed();
         if (expiry < block.timestamp + MIN_DURATION) revert ExpiryTooShort();
         if (expiry > block.timestamp + MAX_DURATION) revert ExpiryTooLong();
-        if (ephemeralPublicKey.length == 0) revert InvalidEphemeralKey();
+        if (ephemeralPublicKey.length != 33 && ephemeralPublicKey.length != 65) revert InvalidEphemeralKey();
 
         // Generate unique swap ID
         swapId = keccak256(
@@ -184,7 +237,7 @@ contract EphemeralFactory is IEphemeralFactory, Ownable {
         proxy = _createMinimalProxy(implementation);
 
         // Transfer tokens from user to the proxy (proxy mode)
-        IERC20(token).transferFrom(msg.sender, proxy, amount);
+        IERC20(token).safeTransferFrom(msg.sender, proxy, amount);
 
         // Store swap with recipientGhostAddress and ephemeralPublicKey
         _swaps[swapId] = EphemeralSwap({
@@ -201,6 +254,7 @@ contract EphemeralFactory is IEphemeralFactory, Ownable {
             createdAt: block.timestamp,
             expiry: expiry,
             proxy: proxy,
+            viewTag: viewTag,
             ephemeralPublicKey: ephemeralPublicKey
         });
 
@@ -286,7 +340,7 @@ contract EphemeralFactory is IEphemeralFactory, Ownable {
             if (!success) revert ExecuteFailed();
         } else {
             // Escrow mode: tokens are in this factory contract
-            IERC20(swap.token).transfer(recipient, swap.amount);
+            IERC20(swap.token).safeTransfer(recipient, swap.amount);
         }
 
         emit SwapFulfilled(swapId, msg.sender, recipient);
@@ -314,6 +368,9 @@ contract EphemeralFactory is IEphemeralFactory, Ownable {
         // Validate ephemeralPublicKey matches the stored value (GCL-ZK-01 integrity check)
         if (!_compareBytes(swap.ephemeralPublicKey, ephemeralPublicKey)) {
             revert EphemeralKeyMismatch();
+        }
+        if (swap.viewTag != viewTag) {
+            revert ViewTagMismatch();
         }
 
         // Construct nullifier proof public inputs
@@ -354,7 +411,7 @@ contract EphemeralFactory is IEphemeralFactory, Ownable {
             if (!success) revert ExecuteFailed();
         } else {
             // Escrow mode: tokens are in this factory contract
-            IERC20(swap.token).transfer(recipient, swap.amount);
+            IERC20(swap.token).safeTransfer(recipient, swap.amount);
         }
 
         emit SwapFulfilledWithNullifier(swapId, msg.sender, recipient, nullifier, merkleRoot);
@@ -386,7 +443,7 @@ contract EphemeralFactory is IEphemeralFactory, Ownable {
             if (!success) revert ExecuteFailed();
         } else {
             // Escrow mode: transfer from factory balance
-            IERC20(swap.token).transfer(swap.creator, swap.amount);
+            IERC20(swap.token).safeTransfer(swap.creator, swap.amount);
         }
 
         emit SwapExpired(swapId, msg.sender);
@@ -510,6 +567,7 @@ contract EphemeralFactory is IEphemeralFactory, Ownable {
     error InvalidNullifier();
     error EphemeralKeyMismatch();
     error InvalidContractHash();
+    error ViewTagMismatch();
     error NoETHBalance();
     error ETHWithdrawFailed();
 }

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import { IZKVerifier } from "./interfaces/IZKVerifier.sol";
+import { IFullVerifier } from "./interfaces/IFullVerifier.sol";
 import { Ownable } from "./lib/Ownable.sol";
 
 /// @title ZKVerifier
@@ -105,12 +106,11 @@ contract ZKVerifier is IZKVerifier, Ownable {
         bytes32 publicInputHash = keccak256(abi.encode(publicInputs));
 
         if (fullVerifier != address(0)) {
-            // Delegate to the full generated verifier contract
-            (bool success, bytes memory data) = fullVerifier.staticcall(
-                abi.encodeWithSignature("verifyProof(bytes,bytes)", proof, abi.encode(publicInputs))
+            // Delegate to the full generated verifier contract via typed interface.
+            bool verifierResult = IFullVerifier(fullVerifier).verifyProof(
+                proof,
+                abi.encode(publicInputs)
             );
-            if (!success) revert ProofVerificationFailed();
-            bool verifierResult = abi.decode(data, (bool));
             if (verifierResult) {
                 emit ProofVerified(keccak256(proof), publicInputHash, msg.sender);
             } else {
@@ -118,6 +118,9 @@ contract ZKVerifier is IZKVerifier, Ownable {
             }
             return verifierResult;
         }
+
+        // If bootstrap mode is disabled and no full verifier is set, reject all proofs.
+        if (!bootstrapMode) revert BootstrapNotAllowedInProduction();
 
         // Production mode check: if production mode is enabled but no full verifier is set,
         // bootstrap is blocked — this is a critical safety guard for mainnet deployments.
@@ -143,11 +146,10 @@ contract ZKVerifier is IZKVerifier, Ownable {
         bytes32 publicInputHash = keccak256(abi.encode(publicInputs));
 
         if (fullVerifier != address(0)) {
-            (bool success, bytes memory data) = fullVerifier.staticcall(
-                abi.encodeWithSignature("verifyPlonkProof(bytes,bytes)", proof, abi.encode(publicInputs))
+            bool plonkResult = IFullVerifier(fullVerifier).verifyPlonkProof(
+                proof,
+                abi.encode(publicInputs)
             );
-            if (!success) revert ProofVerificationFailed();
-            bool plonkResult = abi.decode(data, (bool));
             if (plonkResult) {
                 emit ProofVerified(keccak256(proof), publicInputHash, msg.sender);
             } else {
@@ -155,6 +157,9 @@ contract ZKVerifier is IZKVerifier, Ownable {
             }
             return plonkResult;
         }
+
+        // If bootstrap mode is disabled and no full verifier is set, reject all proofs.
+        if (!bootstrapMode) revert BootstrapNotAllowedInProduction();
 
         // Production mode guard
         if (productionMode) revert BootstrapNotAllowedInProduction();
@@ -187,34 +192,31 @@ contract ZKVerifier is IZKVerifier, Ownable {
 
         // ───── Delegate to full verifier if available ─────
         if (fullVerifier != address(0)) {
-            (bool success, bytes memory data) = fullVerifier.staticcall(
-                abi.encodeWithSignature(
-                    "verifyNullifierProof(bytes,bytes)",
-                    proof,
-                    abi.encode(publicInputs)
-                )
+            // Reserve nullifier immediately, then verify. Revert restores atomicity.
+            usedNullifiers[publicInputs.nullifier] = true;
+            bool verifierResult = IFullVerifier(fullVerifier).verifyNullifierProof(
+                proof,
+                abi.encode(publicInputs)
             );
-            if (!success) revert ProofVerificationFailed();
-            bool verifierResult = abi.decode(data, (bool));
             if (!verifierResult) revert ProofVerificationFailed();
 
-            // Mark nullifier as consumed
-            usedNullifiers[publicInputs.nullifier] = true;
             emit NullifierConsumed(publicInputs.nullifier, keccak256(proof));
             emit ProofVerified(keccak256(proof), publicInputHash, msg.sender);
             return true;
         }
 
+        // If bootstrap mode is disabled and no full verifier is set, reject all proofs.
+        if (!bootstrapMode) revert BootstrapNotAllowedInProduction();
+
         // ───── Production mode guard ─────
         if (productionMode) revert BootstrapNotAllowedInProduction();
 
         // ───── Bootstrap mode verification ─────
+        usedNullifiers[publicInputs.nullifier] = true;
         bool result = _verifyNullifierBootstrap(proof, publicInputs);
 
         if (!result) revert ProofVerificationFailed();
 
-        // Mark nullifier as consumed (atomic with verification)
-        usedNullifiers[publicInputs.nullifier] = true;
         emit NullifierConsumed(publicInputs.nullifier, keccak256(proof));
         emit ProofVerified(keccak256(proof), publicInputHash, msg.sender);
 
@@ -266,6 +268,7 @@ contract ZKVerifier is IZKVerifier, Ownable {
         if (publicInputs.amount == 0) revert InvalidPublicInput();
         if (publicInputs.chainId != block.chainid) revert ChainIdMismatch();
         if (publicInputs.ephemeralPublicKey.length == 0) revert InvalidPublicInput();
+        if (publicInputs.ephemeralPublicKey.length != 33 && publicInputs.ephemeralPublicKey.length != 65) revert InvalidPublicInput();
 
         // Verify proof structural integrity (minimum 65 bytes: 32+32+1 for r, s, v)
         if (proof.length < 65) revert InvalidProofLength();
@@ -331,6 +334,7 @@ contract ZKVerifier is IZKVerifier, Ownable {
         if (publicInputs.amount == 0) revert InvalidPublicInput();
         if (publicInputs.chainId != block.chainid) revert ChainIdMismatch();
         if (publicInputs.ephemeralPublicKey.length == 0) revert InvalidPublicInput();
+        if (publicInputs.ephemeralPublicKey.length != 33 && publicInputs.ephemeralPublicKey.length != 65) revert InvalidPublicInput();
 
         // Verify proof structural integrity (minimum 65 bytes: 32+32+1 for r, s, v)
         if (proof.length < 65) revert InvalidProofLength();

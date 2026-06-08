@@ -145,7 +145,7 @@ contract Registry is IRegistry, Ownable {
     }
 
     /// @inheritdoc IRegistry
-    function isTokenSupported(uint256 chainId, address token) external view returns (bool) {
+    function isTokenSupported(uint256 chainId, address token) public view returns (bool) {
         if (!_chains[chainId].active) return false;
 
         address[] memory tokens = _chains[chainId].supportedTokens;

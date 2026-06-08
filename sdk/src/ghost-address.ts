@@ -90,7 +90,7 @@ export function generateStealthAddress(
   //    GCL-SDK-01 FIX: keccak_256 outputs 32 bytes, which is NOT a valid curve
   //    point encoding (expects 33+ bytes). Multiply the generator by the scalar
   //    to produce a valid curve point, then add to the spending public key.
-  const tweakScalar = keccak_256(sharedSecret);
+  const tweakScalar = BigInt(`0x${bytesToHex(keccak_256(sharedSecret))}`);
   const spendingPoint = secp256k1.ProjectivePoint.fromHex(recipientSpendingKey);
   const tweakPoint = secp256k1.ProjectivePoint.BASE.multiply(tweakScalar);
   const stealthPoint = spendingPoint.add(tweakPoint);
@@ -177,7 +177,7 @@ export function scanGhostAddress(
   // GCL-SDK-01 FIX: keccak_256 outputs 32 bytes, which is NOT a valid curve
   // point encoding. Multiply the generator by the scalar to get a valid point.
   const spendingKeyBytes = hexToBytes(recipientIdentity.spendingPublicKey.slice(2));
-  const tweakScalar = sharedHash;
+  const tweakScalar = BigInt(`0x${bytesToHex(sharedHash)}`);
   const spendingPoint = secp256k1.ProjectivePoint.fromHex(spendingKeyBytes);
   const tweakPoint = secp256k1.ProjectivePoint.BASE.multiply(tweakScalar);
   const stealthPoint = spendingPoint.add(tweakPoint);

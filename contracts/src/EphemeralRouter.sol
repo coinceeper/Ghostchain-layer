@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import { IERC20 } from "./interfaces/IERC20.sol";
+import { SafeERC20 } from "./lib/SafeERC20.sol";
 
 /// @title EphemeralRouter
 /// @notice Implementation contract used by ERC-1167 minimal proxies deployed by
@@ -18,6 +19,8 @@ import { IERC20 } from "./interfaces/IERC20.sol";
 ///      physically impossible because the factory is set atomically within
 ///      the proxy's creation, not via a subsequent transaction.
 contract EphemeralRouter {
+    using SafeERC20 for IERC20;
+
     // ───── State ─────
 
     /// @notice The factory authorized to call `execute()`. Set once per proxy
@@ -49,8 +52,7 @@ contract EphemeralRouter {
     ) external onlyFactory returns (bool) {
         // Transfer tokens from the proxy (address(this) in delegatecall context)
         // to the recipient (solver or creator for refunds)
-        bool success = IERC20(token).transfer(recipient, amount);
-        if (!success) revert TransferFailed();
+        IERC20(token).safeTransfer(recipient, amount);
         return true;
     }
 

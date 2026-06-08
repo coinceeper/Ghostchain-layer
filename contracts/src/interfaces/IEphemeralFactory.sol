@@ -27,7 +27,7 @@ interface IEphemeralFactory {
         uint256 sourceChain,
         uint256 destinationChain,
         bytes32 commitment,
-        address indexed recipientGhostAddress,
+        address recipientGhostAddress,
         bytes ephemeralPublicKey,
         uint8 viewTag
     );
@@ -84,6 +84,8 @@ interface IEphemeralFactory {
         uint256 expiry;
         /// @notice Address of the ERC-1167 minimal proxy (address(0) in escrow mode)
         address proxy;
+        /// @notice The first byte of keccak256(sharedSecret) used for fast scanning.
+        uint8 viewTag;
         /// @notice Ephemeral public key (R = r*G) used for shared secret derivation.
         ///         Stored to verify ZK proofs that constrain sharedSecret binding (GCL-ZK-01 fix).
         bytes ephemeralPublicKey;

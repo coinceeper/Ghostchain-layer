@@ -195,8 +195,8 @@ describe('GhostChain Integration Tests', () => {
       const result1 = await zkProver.generateProof(publicInputs);
       const result2 = await zkProver.generateProof(publicInputs);
 
-      // Bootstrap proofs should be different (ECDSA uses random k)
-      expect(result1.proof).not.toBe(result2.proof);
+      // Bootstrap proofs are deterministic with RFC-6979 ECDSA signing in viem.
+      expect(result1.proof).toBe(result2.proof);
       expect(result1.publicInputs.senderCommitment).toBe(result2.publicInputs.senderCommitment);
     });
   });
